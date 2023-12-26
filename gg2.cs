@@ -470,7 +470,6 @@ namespace GunGame
             });
             RegisterListener<Listeners.OnMapStart>(name =>
             {
-                Logger.LogInformation($"Map {name} start {(Hot_Reload ? "Hot reload" : " ")}");
                 Console.WriteLine("[GUNGAME]********* Map Start");
                 if (LoadConfig())
                 {
