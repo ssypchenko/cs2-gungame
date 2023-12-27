@@ -435,14 +435,6 @@ namespace GunGame
             RegisterListener<Listeners.OnClientConnected>((client) =>
             {
                 var ggplayer = playerManager.CreatePlayerBySlot(client);
-                if (ggplayer == null)
-                {
-                    Logger.LogError($"[GUNGAME]* OnClientConnected: Error creating a player slot {client}");
-                }
-                else
-                {
-                    Logger.LogInformation($"[GUNGAME]* OnClientConnected: Created player slot {client}");
-                }
             });
             RegisterListener<Listeners.OnClientAuthorized>((slot, id) =>
             {
@@ -470,11 +462,14 @@ namespace GunGame
             });
             RegisterListener<Listeners.OnMapStart>(name =>
             {
+                Logger.LogInformation($"Map {name} start {(Hot_Reload ? "Hot reload" : " ")}");
                 Console.WriteLine("[GUNGAME]********* Map Start");
                 if (LoadConfig())
                 {
-                    Logger.LogInformation($"Load from Config {Config.MinKillsPerLevel}");
-                    if (!Hot_Reload && WeaponLoaded)
+                    SetupGameWeapons();
+                    SetupWeaponsLevels();
+                
+                    if (Config.IsPluginEnabled && WeaponLoaded)
                     {
                         InitVariables();
                         
@@ -573,7 +568,6 @@ namespace GunGame
                 {
                     StopTripleEffects(player);
                 } */
-                Logger.LogError($"[GUNGAME]* OnClientDisconnect: Forget player {player.PlayerName}");
                 playerManager.ForgetPlayer(player.Slot);
             }); 
             RegisterListener<Listeners.OnClientDisconnectPost>( slot =>
@@ -930,7 +924,14 @@ namespace GunGame
             {
                 return HookResult.Continue;
             }
-            Console.WriteLine($"{KillerController.PlayerName} killed {VictimController.PlayerName} with {weapon_used}");
+            if (KillerController.IsValid && KillerController.DesignerName == "cs_player_controller")
+            {
+                Console.WriteLine($"{KillerController.PlayerName} killed {VictimController.PlayerName} with {weapon_used}");
+            }
+            else
+            {
+                Logger.LogError($"{VictimController.PlayerName} killed not by player. Designer name: {KillerController.DesignerName}");
+            }
             var ggKiller = playerManager.GetPlayer(KillerController, "EventPlayerDeathHandler");
 
             if (ggKiller == null)
@@ -2506,9 +2507,8 @@ namespace GunGame
             if ( Level > GGVariables.Instance.WeaponOrderCount )
             {
                 /* Winner Winner Winner. They won the prize of gaben plus a hat. */
-                string Name = player.PlayerName;
+                GGVariables.Instance.GameWinner = new(player);
 
-                int team = player.GetTeam();
                 /*
                 int r = (team == TEAM_T ? 255 : 0);
                 int g =  team == TEAM_CT ? 128 : (team == TEAM_T ? 0 : 255);
@@ -2522,7 +2522,7 @@ namespace GunGame
                     {
                         if (IsValid(playerController) && !playerController.IsBot)
                         {
-                            playerController.PrintToCenterHtml(Localizer["winner.is", player.PlayerName]);
+                            playerController.PrintToCenterHtml(Localizer["winner.is", GGVariables.Instance.GameWinner.Name]);
                         }
                     }
                 }
@@ -2532,8 +2532,6 @@ namespace GunGame
                 Call_PushString(WeaponOrderName[Level - 1]);
                 Call_PushCell(victim);
                 Call_Finish(); */
-
-                GGVariables.Instance.GameWinner = player;
 
                 if (Config.WinnerFreezePlayers) {
                     FreezeAllPlayers();
@@ -2604,12 +2602,12 @@ namespace GunGame
         {
             if (Config.EndGameDelay > 0) {
                 Console.WriteLine($"Call EndMultiplayerGame in {Config.EndGameDelay} seconds");
-                Logger.LogInformation($"Call EndMultiplayerGame in {Config.EndGameDelay} seconds");
                 endGameTimer??= AddTimer(1.0f, EndMultiplayerGame, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
                 endGameCount = 0;
-                AddTimer(Config.EndGameDelay, EndMultiplayerGame, TimerFlags.STOP_ON_MAPCHANGE);
+//                AddTimer(Config.EndGameDelay, EndMultiplayerGame, TimerFlags.STOP_ON_MAPCHANGE);
             }
             else {
+                endGameCount = (int)Config.EndGameDelay;
                 Logger.LogInformation($"Call EndMultiplayerGame now");
                 EndMultiplayerGame();
             }
@@ -2618,7 +2616,21 @@ namespace GunGame
         {
             if ( ++endGameCount < Config.EndGameDelay )
             {   
-                Console.WriteLine($"{Config.EndGameDelay - endGameCount} seconds left to the map change");
+                var seconds = Config.EndGameDelay - endGameCount;
+                if (seconds < 6)
+                {
+                    var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
+                    if (playerEntities != null && playerEntities.Count() > 0)
+                    {
+                        foreach (var playerController in playerEntities)
+                        {
+                            if (IsValid(playerController))
+                            {
+                                playerController.PrintToCenter(Localizer["mapend.left", seconds]);
+                            }
+                        }
+                    }
+                }
                 return;
             }
             if (endGameTimer != null)
@@ -2662,7 +2674,7 @@ namespace GunGame
             CCSGameRules gRules = GetGameRules();
             if (gRules != null)
             {
-                if (GGVariables.Instance.GameWinner != null && (CsTeam)GGVariables.Instance.GameWinner.GetTeam() == CsTeam.Terrorist) {
+                if (GGVariables.Instance.GameWinner != null && (CsTeam)GGVariables.Instance.GameWinner.TeamNum == CsTeam.Terrorist) {
                     gRules.TerminateRound(0.1f, RoundEndReason.TerroristsWin);
                 } else {
                     gRules.TerminateRound(0.1f, RoundEndReason.CTsWin);
@@ -2915,7 +2927,7 @@ namespace GunGame
         public int GetTeam()
         {
             var playerController = Utilities.GetPlayerFromSlot(this.Slot);
-            if (playerController == null)
+            if (playerController == null || !playerController.IsValid)
                 return 0;
             else
                 return playerController.TeamNum;

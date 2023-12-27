@@ -29,7 +29,7 @@ namespace GunGame.Variables
         public List<Weapon> weaponsList = new();
         public int WeaponOrderCount { get; set; }
         public bool IsActive = false;  // GG is active
-        public GGPlayer? GameWinner { get; set; }
+        public Winner? GameWinner { get; set; }
         public Leader CurrentLeader { get; set; } = new();
         public bool RoundStarted = false;
         public Objectives MapStatus { get; set; }

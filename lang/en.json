@@ -28,5 +28,6 @@
   "triedshoot.knife": "{0} tried {lightred}Shoot and Knife{default} and lost level!",
   "kill.afk": "You do not gain a frag because you killed an afk!",
   "max.afkdeath": "Kicked for afk deaths",
-  "handicap.updated": "{lightblue}Your level has been updated by handicap"
+  "handicap.updated": "{lightblue}Your level has been updated by handicap",
+  "mapend.left": "{0} seconds to change map"
 } 
