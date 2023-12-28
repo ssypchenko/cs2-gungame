@@ -7,10 +7,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.135" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="7.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.142" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
+    <PackageReference Include="MySqlConnector" Version="*" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="*" />
+    <PackageReference Include="Newtonsoft.Json" Version="*" />
   </ItemGroup>
   <ItemGroup>
         <None Update="lang\**\*.*" CopyToOutputDirectory="PreserveNewest" />

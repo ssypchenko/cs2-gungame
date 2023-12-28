@@ -169,9 +169,6 @@ public class GGConfig : BasePluginConfig
     [JsonPropertyName("BlockWeaponSwitchIfKnife")]
     public bool BlockWeaponSwitchIfKnife { get; set; } = false;
     
-    [JsonPropertyName("BotCanWin")]
-    public bool BotCanWin { get; set; } = false;
-
     /* Enables Warmup Round*/
     [JsonPropertyName("WarmupEnabled")]
     public bool WarmupEnabled { get; set; } = true; 
@@ -627,6 +624,30 @@ public class GGConfig : BasePluginConfig
     */
     [JsonPropertyName("AfkAction")]
     public int AfkAction { get; set; } = 2;
+
+    /* Can bots win the game otherwise when they reach the last weapon and nothing will happen */
+    [JsonPropertyName("BotCanWin")]
+    public bool BotCanWin { get; set; } = false;
+
+    /* Allow level up by killing a bot with knife */
+    [JsonPropertyName("AllowUpByKnifeBot")]
+    public bool AllowUpByKnifeBot { get; set; } = false;
+
+    /* Allow level up by killing a bot with hegrenade */
+    [JsonPropertyName("AllowLevelUpByExplodeBot")]
+    public bool AllowLevelUpByExplodeBot { get; set; } = false;
+
+    /* Allow level up by killing a bot with knife if there is no other human */
+    [JsonPropertyName("AllowLevelUpByKnifeBotIfNoHuman")]
+    public bool AllowLevelUpByKnifeBotIfNoHuman { get; set; } = false;
+
+    /* Allow level up by killing a bot with hegrenade if there is no other human */
+    [JsonPropertyName("AllowLevelUpByExplodeBotIfNoHuman")]
+    public bool AllowLevelUpByExplodeBotIfNoHuman { get; set; } = false;
+
+    /* If player wins on bot, then dont add win in stats. */
+    [JsonPropertyName("DontAddWinsOnBot")]
+    public bool DontAddWinsOnBot { get; set; } = false;
 
     /* List of sounds after we have the Winner  */
     [JsonPropertyName("WinnerSound")]

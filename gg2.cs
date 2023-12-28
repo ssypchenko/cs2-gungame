@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
+using MySqlConnector;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
@@ -72,7 +73,7 @@ namespace GunGame
                 }
                 else
                 {
-                    Logger.LogError("Error loading config. csgo/cfg/gungame/gungame.json is wrong or empty");
+                    Logger.LogError("Error deserialize config. csgo/cfg/gungame/gungame.json is wrong or empty");
                     return false;
                 }
             }
@@ -93,6 +94,7 @@ namespace GunGame
         public SpecialWeaponInfo SpecialWeapon = new();
         public Random random = new();
         public bool[,] g_Shot = new bool[64,64];
+        internal string dbConnectionString = string.Empty;
         private bool TryGetWeaponInfo(string weaponName, out WeaponInfo weaponInfo)
         {
             if (Weapon_from_List.TryGetValue(weaponName, out var info))
@@ -150,11 +152,14 @@ namespace GunGame
         };
         public override void Load(bool hotReload)
         {
-            Console.WriteLine($"GunGame started, Max Players: {Server.MaxPlayers}");
             if (hotReload)
             {
                 Hot_Reload = true;
                 Logger.LogInformation("[GUNGAME] Hot Reload");
+            }
+            if (LoadDatabase())
+            {
+                GGVariables.Instance.StatsEnabled = true;
             }
             if (LoadConfig())
             {
@@ -173,6 +178,85 @@ namespace GunGame
         public override void Unload(bool hotReload)
         {
             //*********************************************
+        }
+        private bool LoadDatabase()
+        {
+            string databaseConfigFile = Server.GameDirectory + "/csgo/cfg/gungame-db.json";
+            DBConfig config = new();
+            
+            try
+            {
+                string jsonString = File.ReadAllText(databaseConfigFile);
+
+                if (string.IsNullOrEmpty(jsonString))
+                {
+                    Logger.LogError("Error loading DataBase config. csgo/cfg/gungame-db.json is wrong or empty. Continue without GunGame statistics");
+                    return false;
+                }
+
+                var deserializedDBConfig = System.Text.Json.JsonSerializer.Deserialize<DBConfig>(jsonString);
+
+                if (deserializedDBConfig != null)
+                {
+                    if (deserializedDBConfig.DatabaseHost.Length < 1 
+                        || deserializedDBConfig.DatabaseName.Length < 1 
+                        || deserializedDBConfig.DatabaseUser.Length < 1)
+                    {
+                        Logger.LogError("Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
+                    return false;
+                    }
+                    config = deserializedDBConfig;
+                }
+                else
+                {
+                    Logger.LogError("Error deserializing DataBase config. csgo/cfg/gungame-db.json is wrong or empty. Continue without GunGame statistics");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GunGame] Error reading or deserializing gungame-db.json file: {ex.Message}. Continue without GunGame statistics");
+                return false;
+            }
+
+            MySqlConnectionStringBuilder builder = new MySqlConnectionStringBuilder
+            {
+                Server = config.DatabaseHost,
+                Database = config.DatabaseName,
+                UserID = config.DatabaseUser,
+                Password = config.DatabasePassword,
+                Port = (uint)config.DatabasePort,
+            };
+
+            dbConnectionString = builder.ConnectionString;
+
+            try
+            {
+                using (var connection = new MySqlConnection(dbConnectionString))
+                {
+                    connection.Open();
+
+                    string sql = @"CREATE TABLE IF NOT EXISTS `gungame_playerdata` (
+                                    `id` INT NOT NULL AUTO_INCREMENT,
+                                    `wins` INT NOT NULL DEFAULT '0',
+                                    `authid` VARCHAR(64) NOT NULL DEFAULT '0',
+                                    `name` VARCHAR(128) NOT NULL DEFAULT '0',
+                                    `timestamp` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                    PRIMARY KEY  (`id`),KEY `wins` (`wins`),KEY `authid` (`authid`)
+                                    
+                                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;";
+
+                    MySqlCommand command = new MySqlCommand(sql, connection);
+                    command.ExecuteNonQuery();
+                    connection.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Unable to connect to database! Continue without GunGame statistics. {ex.Message}");
+            }
+            
+            return false;
         }
         private void GG_Startup()
         {
@@ -214,6 +298,7 @@ namespace GunGame
 
                 if (string.IsNullOrEmpty(jsonString))
                 {
+                    Logger.LogError("Error loading weapons config. csgo/cfg/gungame/weapons.json is wrong or empty");
                     return;
                 }
 
@@ -225,12 +310,14 @@ namespace GunGame
                 }
                 else
                 {
+                    Logger.LogError("Error deserialize weapons config. csgo/cfg/gungame/weapons.json is wrong or empty");
                     return;
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[GunGame] Error reading or deserializing weapons.json file: {ex.Message}");
+                Logger.LogError($"[GunGame] Error reading or deserializing weapons.json file: {ex.Message}");
                 return;
             }
             GGVariables.Instance.g_WeaponsMaxId = 0;
@@ -972,10 +1059,53 @@ namespace GunGame
                 if ( ret == Plugin_Changed )
                 { */
             int level;
-            bool returned_value = false; // if another plugin asks this not to be considered a kill, it will return true
-            if (returned_value || TeamKill)
+            bool stop_further_processing = false; // if another plugin asks this not to be considered a kill, it will return true
+            // Here is the part from Bot Management
+            if (VictimController.IsBot)
             {
-                if (returned_value)
+                if (usedWeaponInfo.LevelIndex == SpecialWeapon.KnifeLevelIndex)
+                {
+                    if (!Config.AllowUpByKnifeBot) // can't level up by knife on Bot
+                    {
+                        if (Config.AllowLevelUpByKnifeBotIfNoHuman) // can level up by knife on Bot
+                        { 
+                            if (HumansPlay() != 1)                  // but only if no other humsns 
+                            {
+                                stop_further_processing = true;
+                                if (KillerController.IsValid) KillerController.PrintToChat(Localizer["cantknife.leveluponbotwithhumans"]);
+                            }
+                        }
+                        else
+                        {
+                            stop_further_processing = true;
+                            if (KillerController.IsValid) KillerController.PrintToChat(Localizer["cantknife.leveluponbot"]);
+                        }
+                    }
+                }
+                else if (usedWeaponInfo.LevelIndex == SpecialWeapon.HegrenadeLevelIndex)
+                {
+                    if (!Config.AllowLevelUpByExplodeBot) // can't level up by he on Bot
+                    {
+                        if (Config.AllowLevelUpByExplodeBotIfNoHuman) // can level up by he on Bot
+                        { 
+                            if (HumansPlay() != 1)                  // but only if no other humsns 
+                            {
+                                stop_further_processing = true;
+                                if (KillerController.IsValid) KillerController.PrintToChat(Localizer["canthe.leveluponbotwithhumans"]);
+                            }
+                        }
+                        else
+                        {
+                            stop_further_processing = true;
+                            if (KillerController.IsValid) KillerController.PrintToChat(Localizer["canthe.leveluponbot"]);
+                        }
+                    }
+                }
+            }
+            
+            if (stop_further_processing || TeamKill)
+            {
+                if (stop_further_processing)
                 {    
                     ReloadActiveWeapon(Killer, usedWeaponInfo.Index);
                     return HookResult.Continue;
@@ -991,7 +1121,7 @@ namespace GunGame
                     Killer.CurrentLevelPerRoundTriple = 0;
                     
                     int oldLevel = (int) Killer.Level;
-                    level = ChangeLevel(Killer, -Config.TkLooseLevel);
+                    level = ChangeLevel(Killer, -Config.TkLooseLevel, false, VictimController);
                     if ( level == oldLevel )
                     {
                         return 0;
@@ -1057,7 +1187,7 @@ namespace GunGame
                 }
                 if ( follow && !Config.DisableLevelDown ) 
                 {
-                    int ChangedLevel = ChangeLevel(Victim, -1, true);
+                    int ChangedLevel = ChangeLevel(Victim, -1, true, KillerController);
                     if ( ChangedLevel != VictimLevel ) 
                     {
                         Server.PrintToChatAll (Localizer["level.stolen", Killer.PlayerName, Victim.PlayerName]);
@@ -1101,7 +1231,7 @@ namespace GunGame
                 if (follow)
                 {
                     oldLevelKiller = level;
-                    level = ChangeLevel(Killer, 1, true);
+                    level = ChangeLevel(Killer, 1, true, VictimController);
                     if ( oldLevelKiller == level ) {
                         return HookResult.Continue;
                     }
@@ -1221,7 +1351,7 @@ namespace GunGame
             }
 
             oldLevelKiller = level;
-            level = ChangeLevel(Killer, 1, false);
+            level = ChangeLevel(Killer, 1, false, VictimController);
             if ( oldLevelKiller == level )
             {
                 return HookResult.Continue;
@@ -2464,7 +2594,7 @@ namespace GunGame
             // say tied to the lead on level X
             Server.PrintToChatAll(Localizer["tiedwith.leader", player.PlayerName, newLevel]);
         }
-        private int ChangeLevel(GGPlayer player, int difference, bool KnifeSteal = false)
+        private int ChangeLevel(GGPlayer player, int difference, bool KnifeSteal = false, CCSPlayerController CounterpartController = null!)
         {
             if ( difference == 0 || !GGVariables.Instance.IsActive || warmupInitialized || GGVariables.Instance.GameWinner != null )
             {
@@ -2533,6 +2663,13 @@ namespace GunGame
                 Call_PushCell(victim);
                 Call_Finish(); */
 
+                if (!(Config.DontAddWinsOnBot && CounterpartController != null && CounterpartController.IsValid && CounterpartController.IsBot))
+                {
+                    player.PlayerWins++;
+                    StatsSQLManager _statsManager = new(dbConnectionString);
+		            _ = _statsManager.SavePlayerData(player);
+                }
+                
                 if (Config.WinnerFreezePlayers) {
                     FreezeAllPlayers();
                 }
@@ -2700,6 +2837,17 @@ namespace GunGame
 
             return input;
         }
+        private int HumansPlay()
+        {
+            return Utilities.GetPlayers()
+                .Where(p => p.Connected == PlayerConnectedState.PlayerConnected 
+                 && ((CsTeam)p.TeamNum == CsTeam.Terrorist || (CsTeam)p.TeamNum == CsTeam.CounterTerrorist)
+                 && !p.IsBot && !p.IsHLTV).Count();
+        }
+        private void SavePlayerData(GGPlayer player)
+        {
+            // save statisctics
+        }
 
         [ConsoleCommand("ggtest_dump", "Test system work")]
         public void OnCommand(CCSPlayerController? player, CommandInfo command)
@@ -2726,14 +2874,19 @@ namespace GunGame
                 Console.WriteLine("Players Online:");
                 foreach (var playerController in playerEntities)
                 {
-                    
                     if (IsValid(playerController) && !playerController.IsBot)
                     {
                         Console.WriteLine($"{playerController.PlayerName} index {playerController.Index}");
-                        for (int i = 0; i <= Server.MaxPlayers; i++)
+                        
+                        if (playerController.PlayerName == "OneMore")
                         {
-                            if (g_Shot[playerController.Index,i])
-                                Console.WriteLine($"{playerController.PlayerName} shot index {i}");
+                            var pl = playerManager.GetPlayer(playerController);
+                            if (pl != null)
+                            {
+                                pl.PlayerWins++;
+                                StatsSQLManager _statsManager = new(dbConnectionString);
+                                _ = _statsManager.SavePlayerData(pl);
+                            }
                         }
                     }
                 }
@@ -2882,6 +3035,8 @@ namespace GunGame
             LevelWeapon = GGVariables.Instance.weaponsList.FirstOrDefault(w => w.Level == 1)!;
             Angles = new QAngle();
             Origin = new Vector();
+            PlayerWins = -1;
+            PlayerPlace = -1;
         }
         public void UpdatePlayerController(CCSPlayerController playerController)
         {
@@ -2910,6 +3065,8 @@ namespace GunGame
         public Vector? Origin { get; set; }
         public int AfkCount { get; set; } = 0;
         public PlayerStates State { get; set;}
+        public int PlayerWins { get; set;}
+        public int PlayerPlace { get; set;}
         public void SetLevel( int setLevel)
         {
             if (setLevel > GGVariables.Instance.WeaponOrderCount || setLevel < 1)
@@ -2933,6 +3090,39 @@ namespace GunGame
                 return playerController.TeamNum;
         }
     }
+    internal class StatsSQLManager
+	{
+		private readonly MySqlConnection _dbConnection;
+		public StatsSQLManager(string connectionString)
+		{
+			_dbConnection = new MySqlConnection(connectionString);
+		}
+        public async Task SavePlayerData(GGPlayer player)
+		{
+			if (player == null) return;
+
+			string safePlayerName = System.Net.WebUtility.HtmlEncode(player.PlayerName);
+            DateTime now = DateTime.Now;
+
+			await using var connection = _dbConnection;
+			await connection.OpenAsync();
+
+			var sql = "INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) " +
+                "VALUES (@wins, @SavedSteamID, @PlayerName, @now) " +
+                "ON DUPLICATE KEY UPDATE `name` = @PlayerName, `wins` = @wins, `timestamp` = @now";
+
+
+            var command = new MySqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@wins", player.PlayerWins);
+            command.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
+            command.Parameters.AddWithValue("@PlayerName", safePlayerName);
+            command.Parameters.AddWithValue("@now", now);
+
+            command.ExecuteNonQuery();
+		}
+    }
+
+
 /*    public class SchemaString<SchemaClass> : NativeObject where SchemaClass : NativeObject
     {
         public SchemaString(SchemaClass instance, string member) : base(Schema.GetSchemaValue<nint>(instance.Handle, typeof(SchemaClass).Name!, member))
@@ -2956,5 +3146,5 @@ namespace GunGame
         }
     } */
 }
-//Colors Available = "{default} {white} {darkred} {green} {lightyellow}" "{lightblue} {olive} {lime} {red} {lightpurple}"
+// test update Colors Available = "{default} {white} {darkred} {green} {lightyellow}" "{lightblue} {olive} {lime} {red} {lightpurple}"
                       //"{purple} {grey} {yellow} {gold} {silver}" "{blue} {darkblue} {bluegrey} {magenta} {lightred}" "{orange}"
