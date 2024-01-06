@@ -206,10 +206,10 @@ public class GGConfig : BasePluginConfig
     [JsonPropertyName("MultiLevelAmount")]
     public int MultiLevelAmount { get; set; } = 3;
 
+    /*Sound on Multilevel bonus */
+    [JsonPropertyName("MultiLevelSound")]
+    public string MultiLevelSound { get; set; } = "sounds/training/highscore.wav";
     
-/*    public bool? ObjectiveBonusWin { get; set; }
-    public bool? InternalIsActive { get; set; } */
-
     /**
     * Level down players if they use the "kill" command
     * 0 - Disable
@@ -332,6 +332,17 @@ public class GGConfig : BasePluginConfig
     */
     [JsonPropertyName("TopRankHandicap")]
     public bool TopRankHandicap { get; set; } = true;
+
+    /**
+    * Do not give handicap to the top rank players.
+    *
+    * See also "TopRankHandicap" to allow all players to receive handicap.
+    *
+    * 0 - Give handicap to all players.
+    * N - Do not give handicap for the first N players.
+    */
+    [JsonPropertyName("HandicapTopRank")]
+    public int HandicapTopRank { get; set; } = 20;
     
     /**
     * Use spectator's levels to calculate handicap level.
@@ -675,4 +686,22 @@ public class GGConfig : BasePluginConfig
     
     [JsonPropertyName("LevelStealUpSound")]
     public string LevelStealUpSound { get; set; } = "sounds/training/pointscored.wav";
+    /* List of sounds after we have the Winner  */
+    [JsonPropertyName("TeamKillSound")]
+    public List<string> TeamKillSound { get; set; } = new List<string>
+    {
+        "sounds/vo/agents/balkan/friendlyfire05.wav",
+        "sounds/vo/agents/fbihrt_epic/takingfire_friendly_05.wav",
+        "sounds/vo/agents/fbihrt_epic/takingfire_friendly_07.wav",
+        "sounds/vo/agents/fbihrt_epic/takingfire_friendly_08.wav",
+        "sounds/vo/agents/gendarmerie_fem/ff1_sees_friend_killed_05.wav",
+        "sounds/vo/agents/jungle_fem/aff1_sees_friend_killed_06.wav",
+        "sounds/vo/agents/leet_epic/sees_friend_killed_01.wav",
+        "sounds/vo/agents/professional/radiobotunderfirefriendly07.wav",
+        "sounds/vo/agents/professional_fem/sees_friend_killed_01.wav",
+        "sounds/vo/agents/sas/friendlyfire08.wav",
+        "sounds/vo/agents/seal_diver_02/am1_sees_friend_killed_01.wav",
+        "sounds/vo/agents/seal_fem/af1_sees_friend_killed_06.wav",
+        "sounds/vo/agents/swat_fem/sees_friend_killed_04.wav"
+    };
 }
