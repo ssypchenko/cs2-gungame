@@ -18,16 +18,19 @@ GunGame challenges players with various weapons, requiring kills with each to pr
 - `gg_enable` - Turn on gungame and restart the game.
 - `gg_disable` - Turn off gungame and restart the game.
 - `gg_rebuild` - Rebuilds the top10 rank from the player data information.
+
+Commands available now:
 - `gg_reset` - Reset all gungame stats.
 - `!top` - Show the top winners on the server.
 - `!rank` - Show your current place in stats.
-- *More commands will be added.*
+- `!music` - Turn Off or On all plugin sounds for the player.
+
 
 ## Requirements
 
 - Counter-Strike 2
 - Metamod:Source v1275+
-- Counter Strike Share v.130+
+- Counter Strike Share v.142+
 
 ## Installation
 
