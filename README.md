@@ -28,6 +28,7 @@ Commands available now:
 
 ## Requirements
 
+- Linux server (unfortunately, plugin does not work on Windows server yet)
 - Counter-Strike 2
 - Metamod:Source v1275+
 - Counter Strike Share v.142+
