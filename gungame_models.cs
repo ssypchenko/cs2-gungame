@@ -15,6 +15,30 @@ namespace GunGame.Models
     {
         public const int MaxPlayers = 64;
     }
+    public class DatabaseSettings
+    {
+        public DBConfig StatsDB { get; set; } = null!;
+        public DBConfig OnlineDB { get; set; }  = null!;
+    }
+    public class DBConfig
+    {
+        [JsonPropertyName("DatabaseType")]
+        public string DatabaseType { get; set; } = "";
+        [JsonPropertyName("DatabaseFilePath")]
+        public string DatabaseFilePath { get; set; } = "";
+        [JsonPropertyName("DatabaseHost")]
+        public string DatabaseHost { get; set; } = "";
+        [JsonPropertyName("DatabasePort")]
+        public int DatabasePort { get; set; }
+        [JsonPropertyName("DatabaseUser")]
+        public string DatabaseUser { get; set; } = "";
+        [JsonPropertyName("DatabasePassword")]
+        public string DatabasePassword { get; set; } = "";
+        [JsonPropertyName("DatabaseName")]
+        public string DatabaseName { get; set; } = "";
+        [JsonPropertyName("Comment")]
+        public string Comment { get; set; } = "";
+    }
     public class WeaponInfo
     {
         [JsonPropertyName("index")]
@@ -95,6 +119,31 @@ namespace GunGame.Models
             Slot = winner.Slot;
             TeamNum = winner.GetTeam();
             Name = winner.PlayerName;
+        }
+    }
+    public class WinnerEventArgs : EventArgs
+    {
+        public int Winner { get; }
+        public int Looser { get; }
+        public WinnerEventArgs(int winner, int looser)
+        {
+            Winner = winner;
+            Looser = looser;
+        }
+    }
+    public class KillEventArgs : EventArgs
+    {
+        public bool Result { get; set; }
+        public int Killer { get; }
+        public int Victim { get; }
+        public string Weapon { get; set; }
+        public bool TeamKill { get; set; }
+        public KillEventArgs(int killer, int victim, string weapon, bool teamkill)
+        {
+            Killer = killer;
+            Victim = victim;
+            Weapon = weapon;
+            TeamKill = teamkill;
         }
     }
     public enum GGSounds

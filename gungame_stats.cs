@@ -1,112 +1,77 @@
 ﻿using System.Data;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using Dapper;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Modules.Memory;
 using MySqlConnector;
-using GunGame;
+using GunGame.Models;
 using GunGame.Variables;
 using Microsoft.Extensions.Logging;
 
 namespace GunGame.Stats
 {
-    public class StatsManager : BasePlugin
+    public class StatsManager
 	{
-        public override string ModuleName => "GunGame_Stats";
-        public override string ModuleVersion => "v1.0.3";
+        private GunGame Plugin;
         private SqliteConnection _sqliteConn = null!;
         private MySqlConnection _mysqlConn = null!;
         public DBConfig config = null!;
-        public DatabaseType databaseType { get; set; }
-        public bool StatsEnable = false;
-		public StatsManager()
+        public DatabaseType DatabaseType { get; set; }
+        public bool SavingPlayer = false;
+        public bool UnsuccessfulSave = false;
+		public StatsManager(DBConfig dBConfig, GunGame plugin)
 		{
-            string configFile = Server.GameDirectory + "/csgo/cfg/gungame-db.json";
-            config = LoadDBConfig(configFile);
+            Plugin = plugin;
+            config = dBConfig;
             if (config != null)
             {
                 if (config.DatabaseType.Trim().ToLower() == "mysql") {
-                    databaseType = DatabaseType.MySQL;
+                    DatabaseType = DatabaseType.MySQL;
                 } else if (config.DatabaseType.Trim().ToLower() == "sqlite") {
-                    databaseType = DatabaseType.SQLite;
+                    DatabaseType = DatabaseType.SQLite;
                 }
                 else
                 {
                     Console.WriteLine("[GunGame_Stats] ******* StatsManager: Invalid database type specified in config file. Please check the config file and try again. Correct values are MySQL or SQLite");
+                    Plugin.Logger.LogInformation("[GunGame_Stats] ******* StatsManager: Invalid database type specified in config file. Please check the config file and try again. Correct values are MySQL or SQLite");
                 }
                 InitializeDatabaseConnection();
             }
             else
             {
-                Console.WriteLine($"[GunGame_Stats] ******* StatsManager: Failed to load database configuration from {configFile}");
+                Console.WriteLine($"[GunGame_Stats] ******* StatsManager: Failed to load database configuration from");
+                Plugin.Logger.LogInformation($"[GunGame_Stats] ******* StatsManager: Failed to load database configuration from");
             } 
 		}
-        public DBConfig LoadDBConfig(string configFile)
-        {
-            if (!File.Exists(configFile))
-            {
-                CreateDefaultConfigFile(configFile);
-            }
-            try
-            {
-                string jsonString = File.ReadAllText(configFile);
-                if (string.IsNullOrEmpty(jsonString))
-                {
-                    Console.WriteLine("[GunGame_Stats] ****** LoadDBConfig: Error loading DataBase config. csgo/cfg/gungame-db.json is wrong or empty. Continue without GunGame statistics");
-                    return null!;
-                }
-                return System.Text.Json.JsonSerializer.Deserialize<DBConfig>(jsonString)!;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[GunGame_Stats] ******* LoadDBConfig: Error reading or deserializing gungame-db.json file: {ex.Message}. Continue without GunGame statistics");
-                return null!;
-            }
-        }
-        private void CreateDefaultConfigFile(string configFile)
-        {
-            DBConfig defaultConfig = new DBConfig
-            {
-                DatabaseType = "SQLite",
-                DatabaseFilePath = "/csgo/cfg/gungame-db.sqlite",
-                DatabaseHost = "your_mysql_host",
-                DatabaseName = "your_mysql_database",
-                DatabaseUser = "your_mysql_username",
-                DatabasePassword = "your_mysql_password",
-                DatabasePort = 3306,
-                Comment = "use SQLite or MySQL as Database Type"
-            };
-
-            string defaultConfigJson = JsonSerializer.Serialize(defaultConfig, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(configFile, defaultConfigJson);
-        }
         private void InitializeDatabaseConnection()
         {
-            try
+            if (DatabaseType == DatabaseType.SQLite)
             {
-                if (databaseType == DatabaseType.SQLite)
+                try
                 {
                     string dbFilePath = Server.GameDirectory + config.DatabaseFilePath;
                     _sqliteConn =
                         new SqliteConnection(
                             $"Data Source={dbFilePath}");
-                    if (_sqliteConn == null)
-                    {
-                        Console.WriteLine("[GunGame_Stats]******* InitializeDatabaseConnection: Error _sqliteConn = null");
-                        return;
-                    }
+                    _sqliteConn.Open();
+                    _sqliteConn.Close();
                 }
-                else if (databaseType == DatabaseType.MySQL)
+                catch (Exception ex)
                 {
-                    if (config.DatabaseHost.Length < 1 || config.DatabaseName.Length < 1 || config.DatabaseUser.Length < 1)
-                    {
-                        Console.WriteLine("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
-                        return;
-                    }
+                    Console.WriteLine($"[GunGame_Stats - FATAL] InitializeDatabaseConnection: SQLite Database connection error: {ex.Message}");
+                    return;
+                }
+            }
+            else if (DatabaseType == DatabaseType.MySQL)
+            {
+                if (config.DatabaseHost.Length < 1 || config.DatabaseName.Length < 1 || config.DatabaseUser.Length < 1)
+                {
+                    Console.WriteLine("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
+                    return;
+                }
+                try
+                {
                     var builder = new MySqlConnector.MySqlConnectionStringBuilder
                     {
                         Server = config.DatabaseHost,
@@ -116,30 +81,37 @@ namespace GunGame.Stats
                         Port = (uint)config.DatabasePort,
                     };
                     _mysqlConn = new MySqlConnection(builder.ConnectionString);
-                    if (_mysqlConn == null)
-                    {
-                        Console.WriteLine("[GunGame_Stats]******* InitializeDatabaseConnection: Error _mysqlConn = null");
-                        return;
-                    }
+                    _mysqlConn.Open();
+                    _mysqlConn.Close();
                 }
-                else
+                catch (Exception ex)
                 {
-                    Console.WriteLine("[GunGame_Stats] InitializeDatabaseConnection: Invalid database specified, using SQLite.");
-                    string dbFilePath = Server.GameDirectory + config.DatabaseFilePath;
-                    _sqliteConn =
-                        new SqliteConnection(
-                            $"Data Source={config.DatabaseFilePath}");
-                    databaseType = DatabaseType.SQLite;
+                    Console.WriteLine($"[GunGame_Stats - FATAL] InitializeDatabaseConnection: MySQL Database connection error: {ex.Message}");
+                    return;
+
                 }
-            } 
-            catch (Exception ex)
+            }
+            else
             {
-                Console.WriteLine($"[GunGame_Stats - FATAL] InitializeDatabaseConnection: Database connection error: {ex.Message}");
+                Console.WriteLine("[GunGame_Stats] InitializeDatabaseConnection: Invalid database specified, using SQLite.");
+                try
+                {
+                    string dbFilePath = Server.GameDirectory + config.DatabaseFilePath;
+                    _sqliteConn = new SqliteConnection($"Data Source={config.DatabaseFilePath}");
+                    _sqliteConn.Open();
+                    _sqliteConn.Close();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GunGame_Stats - FATAL] InitializeDatabaseConnection: Backup SQLite Database connection error: {ex.Message}");
+                    return;
+                }
+                DatabaseType = DatabaseType.SQLite;
             }
 
             try
             {
-                if (databaseType == DatabaseType.SQLite) {
+                if (DatabaseType == DatabaseType.SQLite) {
                     _sqliteConn.Execute(@"CREATE TABLE IF NOT EXISTS gungame_playerdata (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         wins INTEGER NOT NULL DEFAULT 0,
@@ -151,7 +123,7 @@ namespace GunGame.Stats
                     );");
                     _sqliteConn.Close();
                 }
-                else if (databaseType == DatabaseType.MySQL)
+                else if (DatabaseType == DatabaseType.MySQL)
                 {
                     _mysqlConn.Execute(@"CREATE TABLE IF NOT EXISTS `gungame_playerdata` (
                         `id` INT NOT NULL AUTO_INCREMENT,
@@ -165,7 +137,6 @@ namespace GunGame.Stats
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
                     _mysqlConn.Close();
                 }
-                StatsEnable = true;
                 GGVariables.Instance.StatsEnabled = true;
             }
             catch (Exception ex)
@@ -173,55 +144,114 @@ namespace GunGame.Stats
                 Console.WriteLine($"[GunGame_Stats - FATAL] Unable to connect to database! Continue without GunGame statistics. {ex.Message}");
             }
         }
-        public async Task SavePlayerData(GGPlayer player)
+        public async Task SavePlayerWin(GGPlayer player)
 		{
             if (player == null) return;
 
 			string safePlayerName = System.Net.WebUtility.HtmlEncode(player.PlayerName);
             DateTime now = DateTime.Now;
-
-			if (databaseType == DatabaseType.SQLite)
+            bool playerExists = false;
+            string query = "SELECT `wins`, `sound` FROM `gungame_playerdata` WHERE `authid` = @authid;";
+            int wins = 0;
+            var playerController = Utilities.GetPlayerFromSlot(player.Slot);
+            if (playerController == null || playerController.SteamID == 0)
             {
-                var sql = "INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) " +
-                "VALUES (@wins, @SavedSteamID, @PlayerName, CURRENT_TIMESTAMP) " +
-                "ON CONFLICT(`authid`) " +
-                "DO UPDATE SET `name` = @PlayerName, `wins` = @wins, `timestamp` = CURRENT_TIMESTAMP;";
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(sql, _sqliteConn);
-                command.Parameters.AddWithValue("@wins", player.PlayerWins);
-                command.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
-                command.Parameters.AddWithValue("@PlayerName", safePlayerName);
-                try
+                Server.NextFrame(() => {
+                    player.SavedWins(false, 1); // problem with SteamID
+                });
+                return;
+            }
+			if (DatabaseType == DatabaseType.SQLite)
+            {
+                try 
                 {
+                    await _sqliteConn.OpenAsync();
+                    
+                    var command = new SqliteCommand(query, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", playerController.SteamID);
+                    var reader = await command.ExecuteReaderAsync();
+                    if (await reader.ReadAsync())
+                    {
+                        wins = reader.GetInt32("wins");
+                        playerExists = true;
+                    }
+
+                    if (playerExists)
+                    {
+                        player.SetWins(++wins);
+                    }
+                    else
+                    {
+                        player.SetWins(1);
+                    }
+                    
+                    query = "INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) " +
+                    "VALUES (@wins, @SavedSteamID, @PlayerName, CURRENT_TIMESTAMP) " +
+                    "ON CONFLICT(`authid`) " +
+                    "DO UPDATE SET `name` = @PlayerName, `wins` = @wins, `timestamp` = CURRENT_TIMESTAMP;";
+                    
+                    command = new SqliteCommand(query, _sqliteConn);
+                    command.Parameters.AddWithValue("@wins", player.PlayerWins);
+                    command.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
+                    command.Parameters.AddWithValue("@PlayerName", safePlayerName);
                     await command.ExecuteNonQueryAsync();
+                    Server.NextFrame(() => {
+                        player.SavedWins(true, 0);
+                    });
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] SavePlayerWin ******* An error occurred: {ex.Message}");
                 }
-                await _sqliteConn.CloseAsync();
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-			else if (databaseType == DatabaseType.MySQL)
+			else if (DatabaseType == DatabaseType.MySQL)
             {
-                var sql = "INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) " +
-                "VALUES (@wins, @SavedSteamID, @PlayerName, @now) " +
-                "ON DUPLICATE KEY UPDATE `name` = @PlayerName, `wins` = @wins, `timestamp` = @now;";
                 try
                 {
                     await _mysqlConn.OpenAsync();
-                    using (var command = new MySqlCommand(sql, _mysqlConn))
+                    var command = new MySqlCommand(query, _mysqlConn);
+                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                    using (var reader = await command.ExecuteReaderAsync())
+                    {
+                        if (await reader.ReadAsync())
+                        {
+                            wins = reader.GetInt32("wins");
+                            playerExists = true;
+                        }
+                    }
+
+                    if (playerExists)
+                    {
+                        player.SetWins(++wins);
+                    }
+                    else
+                    {
+                        player.SetWins(1);
+                    }
+
+                    query = "INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) " +
+                    "VALUES (@wins, @SavedSteamID, @PlayerName, @now) " +
+                    "ON DUPLICATE KEY UPDATE `name` = @PlayerName, `wins` = @wins, `timestamp` = @now;";
+                
+                    using (command = new MySqlCommand(query, _mysqlConn))
                     {
                         command.Parameters.AddWithValue("@wins", player.PlayerWins);
                         command.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
                         command.Parameters.AddWithValue("@PlayerName", safePlayerName);
                         command.Parameters.AddWithValue("@now", now);
-
                         await command.ExecuteNonQueryAsync();
+                        Server.NextFrame(() => {
+                            player.SavedWins(true, 0);
+                        });
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] SavePlayerWin ******* An error occurred: {ex.Message}");
                 }
                 finally
                 {
@@ -231,32 +261,57 @@ namespace GunGame.Stats
 		}
         public async Task GetPlayerWins(GGPlayer player)
         {
+//            Plugin.Logger.LogInformation($"[GunGame_Stats] Getting player wins for {player.PlayerName}");
+            int attempts = 0;
+            while (SavingPlayer && attempts < 20)
+            {
+                attempts++;
+                await Task.Delay(200);
+            }
+            if (SavingPlayer)
+            {
+                Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL] GetPlayerWins ******* Waiting too long to work");
+                if (!UnsuccessfulSave)
+                {
+                    UnsuccessfulSave = true;
+                    Server.NextFrame(() =>
+                    {
+                        Plugin.AddTimer(1.0f, async () => {
+                            await GetPlayerWins(player);
+                        });
+                    });
+                    return;
+                }
+            }
+            SavingPlayer = true;
+            UnsuccessfulSave = false;
             int wins = 0;
             int sound = 1;
 
             string query = "SELECT `wins`, `sound` FROM `gungame_playerdata` WHERE `authid` = @authid;";
 
             bool playerExists = false;
-            if (databaseType == DatabaseType.SQLite)
+            if (DatabaseType == DatabaseType.SQLite)
             {
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(query, _sqliteConn);
-                command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                var reader = await command.ExecuteReaderAsync();
-                if (await reader.ReadAsync())
-                {
-                    wins = reader.GetInt32("wins");
-                    sound = reader.GetInt32("sound");
-                    playerExists = true;
-                }
-                string insertQuery = "INSERT INTO `gungame_playerdata` (`authid`, `name`, `timestamp`) VALUES (@authid, @name, CURRENT_TIMESTAMP);";
-                string updateQuery = "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = CURRENT_TIMESTAMP WHERE `authid` = @authid;";
-                string sql = playerExists ? updateQuery : insertQuery;
-                command = new SqliteCommand(sql, _sqliteConn);
-                command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                command.Parameters.AddWithValue("@name", player.PlayerName);
                 try
                 {
+                    await _sqliteConn.OpenAsync();
+                    var command = new SqliteCommand(query, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                    var reader = await command.ExecuteReaderAsync();
+                    if (await reader.ReadAsync())
+                    {
+                        wins = reader.GetInt32("wins");
+                        sound = reader.GetInt32("sound");
+                        playerExists = true;
+                    }
+                    string insertQuery = "INSERT INTO `gungame_playerdata` (`authid`, `name`, `timestamp`) VALUES (@authid, @name, CURRENT_TIMESTAMP);";
+                    string updateQuery = "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = CURRENT_TIMESTAMP WHERE `authid` = @authid;";
+                    string sql = playerExists ? updateQuery : insertQuery;
+                    command = new SqliteCommand(sql, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                    command.Parameters.AddWithValue("@name", player.PlayerName);
+
                     int rowsAffected = await command.ExecuteNonQueryAsync();
                     if (rowsAffected != 1)
                     {
@@ -265,11 +320,19 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* GetPlayerWins: An error occurred: {ex.Message}");
+                    SavingPlayer = false;
+                    Server.NextFrame(() =>
+                    {
+                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins: An error occurred: {ex.Message}");
+                    });
+                    
                 }
-                await _sqliteConn.CloseAsync();
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-            else if (databaseType == DatabaseType.MySQL)
+            else if (DatabaseType == DatabaseType.MySQL)
             {
                 try
                 {
@@ -306,21 +369,30 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* GetPlayerWins: An error occurred: {ex.Message}");
+                    SavingPlayer = false;
+                    Server.NextFrame(() =>
+                    {
+                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins: An error occurred: {ex.Message}");
+                    });
                 }
                 finally
                 {
                     await _mysqlConn.CloseAsync();
                 }
             }
-            player.PlayerWins = wins;
-            player.Music = sound == 1;            
+            SavingPlayer = false;
+            Server.NextFrame(() =>
+            {
+                player.PlayerWins = wins;
+                player.Music = sound == 1;
+//                Plugin.Logger.LogInformation($"[GunGame_Stats]******* GetPlayerWins: {player.PlayerName} wins {player.PlayerWins}, sound {sound}");
+            });
         }
         public async Task<int> GetPlayerRank(string authid)
         {
             int rank = 0;
 
-            if (databaseType == DatabaseType.SQLite)
+            if (DatabaseType == DatabaseType.SQLite)
             {
                 string query = @"
                 SELECT rank FROM (
@@ -330,11 +402,12 @@ namespace GunGame.Stats
                     FROM `gungame_playerdata`
                 ) as ranked_players
                 WHERE authid = @authid;";
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(query, _sqliteConn);
-                command.Parameters.AddWithValue("@authid", authid);
                 try
                 {
+                    await _sqliteConn.OpenAsync();
+                    var command = new SqliteCommand(query, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", authid);
+                
                     var reader = await command.ExecuteReaderAsync();
                     if (await reader.ReadAsync())
                     {
@@ -344,10 +417,13 @@ namespace GunGame.Stats
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[GunGame_Stats - FATAL]******* GetPlayerRank: An error occurred: {ex.Message}");
-                } 
-                await _sqliteConn.CloseAsync();
+                }
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-            else if (databaseType == DatabaseType.MySQL)
+            else if (DatabaseType == DatabaseType.MySQL)
             {
                 string query = @"SELECT 
                     (SELECT COUNT(*) FROM `gungame_playerdata` as g2 WHERE g2.wins > g1.wins) + 1 as rank
@@ -386,12 +462,13 @@ namespace GunGame.Stats
             int count = 0;
             string query = "SELECT COUNT(*) FROM `gungame_playerdata` WHERE `wins` > 0;";
 
-            if (databaseType == DatabaseType.SQLite)
+            if (DatabaseType == DatabaseType.SQLite)
             {
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(query, _sqliteConn);
                 try
                 {
+                    await _sqliteConn.OpenAsync();
+                    var command = new SqliteCommand(query, _sqliteConn);
+                
                     var result = await command.ExecuteScalarAsync();
                     if (result != null)
                     {
@@ -400,11 +477,14 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* An error occurred: {ex.Message}");
-                } 
-                await _sqliteConn.CloseAsync();
+                    Console.WriteLine($"[GunGame_Stats - FATAL] GetNumberOfWinners ******* An error occurred: {ex.Message}");
+                }
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-            else if (databaseType == DatabaseType.MySQL)
+            else if (DatabaseType == DatabaseType.MySQL)
             {
                 try
                 {
@@ -421,7 +501,7 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] GetNumberOfWinners: ******** An error occurred: {ex.Message}");
                 }
                 finally
                 {
@@ -436,15 +516,16 @@ namespace GunGame.Stats
             string query = @"
                 SELECT `wins` FROM `gungame_playerdata`
                 ORDER BY `wins` DESC
-                LIMIT 1 OFFSET @HandicapTopRank - 1;";
+                LIMIT 1 OFFSET @HandicapTopRank;";
 
-            if (databaseType == DatabaseType.SQLite)
+            if (DatabaseType == DatabaseType.SQLite)
             {
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(query, _sqliteConn);
-                command.Parameters.AddWithValue("@HandicapTopRank", HandicapTopRank);
                 try
                 {
+                    await _sqliteConn.OpenAsync();
+                    var command = new SqliteCommand(query, _sqliteConn);
+                    command.Parameters.AddWithValue("@HandicapTopRank", HandicapTopRank-1);
+                
                     var result = await command.ExecuteScalarAsync();
                     if (result != null)
                     {
@@ -453,11 +534,14 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] GetWinsOfLowestTopPlayer ******* An error occurred: {ex.Message}");
                 }
-                await _sqliteConn.CloseAsync();
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-            else if (databaseType == DatabaseType.MySQL)
+            else if (DatabaseType == DatabaseType.MySQL)
             {
                 try
                 {
@@ -465,7 +549,7 @@ namespace GunGame.Stats
 
                     using (var command = new MySqlCommand(query, _mysqlConn))
                     {
-                        command.Parameters.AddWithValue("@HandicapTopRank", HandicapTopRank);
+                        command.Parameters.AddWithValue("@HandicapTopRank", HandicapTopRank-1);
 
                         var result = await command.ExecuteScalarAsync();
                         if (result != null && result != DBNull.Value)
@@ -476,7 +560,7 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] GetWinsOfLowestTopPlayer ******* An error occurred: {ex.Message}");
                 }
                 finally
                 {
@@ -493,13 +577,14 @@ namespace GunGame.Stats
                 ORDER BY `wins` DESC
                 LIMIT @HandicapTopRank;";
 
-            if (databaseType == DatabaseType.SQLite)
+            if (DatabaseType == DatabaseType.SQLite)
             {
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(query, _sqliteConn);
-                command.Parameters.AddWithValue("@HandicapTopRank", HandicapTopRank);
                 try
                 {
+                    await _sqliteConn.OpenAsync();
+                    var command = new SqliteCommand(query, _sqliteConn);
+                    command.Parameters.AddWithValue("@HandicapTopRank", HandicapTopRank);
+                
                     var reader = await command.ExecuteReaderAsync();
                     while (await reader.ReadAsync())
                     {
@@ -512,11 +597,14 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] GetTopPlayers ******* An error occurred: {ex.Message}");
                 }
-                await _sqliteConn.CloseAsync();
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-            else if (databaseType == DatabaseType.MySQL)
+            else if (DatabaseType == DatabaseType.MySQL)
             {
                 try
                 {
@@ -542,7 +630,7 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] GetTopPlayers ******* An error occurred: {ex.Message}");
                 }
                 finally
                 {
@@ -558,35 +646,39 @@ namespace GunGame.Stats
             string query = "SELECT `sound` FROM `gungame_playerdata` WHERE `authid` = @authid;";
             string updateQuery = "UPDATE `gungame_playerdata` SET `sound` = @sound WHERE `authid` = @authid;";
 
-            if (databaseType == DatabaseType.SQLite)
+            if (DatabaseType == DatabaseType.SQLite)
             {
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(query, _sqliteConn);
-                command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                var reader = await command.ExecuteReaderAsync();
-                if (await reader.ReadAsync())
-                {
-                    sound = reader.GetInt32("sound");
-                }
-                
-                command = new SqliteCommand(updateQuery, _sqliteConn);
-                command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                command.Parameters.AddWithValue("@sound", sound == 0 ? 1 : 0);
                 try
                 {
+                    await _sqliteConn.OpenAsync();
+                    var command = new SqliteCommand(query, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                    var reader = await command.ExecuteReaderAsync();
+                    if (await reader.ReadAsync())
+                    {
+                        sound = reader.GetInt32("sound");
+                    }
+                    
+                    command = new SqliteCommand(updateQuery, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                    command.Parameters.AddWithValue("@sound", sound == 0 ? 1 : 0);
+                
                     int rowsAffected = await command.ExecuteNonQueryAsync();
                     if (rowsAffected != 1)
                     {
-                        Console.WriteLine($"[GunGame_Stats - FATAL] Error with Database update");
+                        Console.WriteLine($"[GunGame_Stats - FATAL] ToggleSound ********* Error with Database update");
                     }
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] ToggleSound ******* An error occurred: {ex.Message}");
                 }
-                await _sqliteConn.CloseAsync();
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-            else if (databaseType == DatabaseType.MySQL)
+            else if (DatabaseType == DatabaseType.MySQL)
             {
                 try
                 {
@@ -612,34 +704,45 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"An error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] ToggleSound ******* An error occurred: {ex.Message}");
                 }
                 finally
                 {
                     await _mysqlConn.CloseAsync();
                 }
             }
+
+            if (sound >= 0)
+            {
+                Server.NextFrame(() =>
+                {
+                    player.SetSound(sound == 0);
+                });
+            }
         }
         public async Task ResetStats()
         {
-
             string updateQuery = "UPDATE `gungame_playerdata` SET `wins` = 0;";
 
-            if (databaseType == DatabaseType.SQLite)
+            if (DatabaseType == DatabaseType.SQLite)
             {
-                await _sqliteConn.OpenAsync();
-                var command = new SqliteCommand(updateQuery, _sqliteConn);
                 try
                 {
+                    await _sqliteConn.OpenAsync();
+                    var command = new SqliteCommand(updateQuery, _sqliteConn);
+                
                     await command.ExecuteNonQueryAsync();
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* ResetStats - an error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] ResetStats ******* An error occurred: {ex.Message}");
                 }
-                await _sqliteConn.CloseAsync();
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
             }
-            else if (databaseType == DatabaseType.MySQL)
+            else if (DatabaseType == DatabaseType.MySQL)
             {
                 await _mysqlConn.OpenAsync();
                 var command = new MySqlCommand(updateQuery, _mysqlConn);
@@ -649,9 +752,12 @@ namespace GunGame.Stats
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[GunGame_Stats - FATAL]******* ResetStats - an error occurred: {ex.Message}");
+                    Console.WriteLine($"[GunGame_Stats - FATAL] ResetStats ******* An error occurred: {ex.Message}");
                 }
-                await _mysqlConn.CloseAsync();
+                finally
+                {
+                    await _mysqlConn.CloseAsync();
+                }
             }
         }
     }
@@ -659,24 +765,5 @@ namespace GunGame.Stats
     {
         SQLite,
         MySQL
-    }
-    public class DBConfig
-    {
-        [JsonPropertyName("DatabaseType")]
-        public string DatabaseType { get; set; } = "";
-        [JsonPropertyName("DatabaseFilePath")]
-        public string DatabaseFilePath { get; set; } = "";
-        [JsonPropertyName("DatabaseHost")]
-        public string DatabaseHost { get; set; } = "";
-        [JsonPropertyName("DatabasePort")]
-        public int DatabasePort { get; set; }
-        [JsonPropertyName("DatabaseUser")]
-        public string DatabaseUser { get; set; } = "";
-        [JsonPropertyName("DatabasePassword")]
-        public string DatabasePassword { get; set; } = "";
-        [JsonPropertyName("DatabaseName")]
-        public string DatabaseName { get; set; } = "";
-        [JsonPropertyName("Comment")]
-        public string Comment { get; set; } = "";
     }
 }

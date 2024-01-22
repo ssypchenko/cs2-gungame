@@ -681,12 +681,15 @@ public class GGConfig : BasePluginConfig
     [JsonPropertyName("LevelDownSound")]
     public string LevelDownSound { get; set; } = "sounds/ui/armsrace_demoted.wav";
 
+    /* Sound for player when he leveled up */
     [JsonPropertyName("LevelUpSound")]
     public string LevelUpSound { get; set; } = "sounds/ui/armsrace_level_up.wav";
     
+    /* Sound for player when he stole level */
     [JsonPropertyName("LevelStealUpSound")]
     public string LevelStealUpSound { get; set; } = "sounds/training/pointscored.wav";
-    /* List of sounds after we have the Winner  */
+
+    /* List of sounds for everyone when someone killed a teammate */
     [JsonPropertyName("TeamKillSound")]
     public List<string> TeamKillSound { get; set; } = new List<string>
     {
@@ -703,5 +706,15 @@ public class GGConfig : BasePluginConfig
         "sounds/vo/agents/seal_diver_02/am1_sees_friend_killed_01.wav",
         "sounds/vo/agents/seal_fem/af1_sees_friend_killed_06.wav",
         "sounds/vo/agents/swat_fem/sees_friend_killed_04.wav"
+    };
+
+    /* List of sounds for everyone when someone stole a level by knife */
+    [JsonPropertyName("KnifeStealSound")]
+    public List<string> KnifeStealSound { get; set; } = new List<string>
+    {
+        "sounds/vo/commander/commander_comment_07.wav",
+        "sounds/vo/commander/commander_comment_08.wav",
+        "sounds/vo/commander/commander_comment_09.wav",
+        "sounds/vo/commander/commander_comment_14.wav"
     };
 }

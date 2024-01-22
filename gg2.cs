@@ -30,6 +30,8 @@ using GunGame;
 using GunGame.Models;
 using GunGame.Variables;
 using GunGame.Stats;
+using GunGame.Online;
+using System.Security.Principal;
 
 namespace GunGame
 {
@@ -41,19 +43,79 @@ namespace GunGame
             playerManager = new(this);
         }
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.3";
+        public override string ModuleVersion => "v1.0.4";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
+        public bool LogConnections = false;
         public bool WeaponLoaded = false;
         private bool warmupInitialized = false;
         private int WarmupCounter = 0;
         private bool IsObjectiveHooked = false;        
         public GGConfig Config { get; set; } = new();
+        public DatabaseSettings dbSettings = new();
         public StatsManager statsManager { get; set; } = null!;
+        public OnlineManager onlineManager { get; set; } = null!;
         public void OnConfigParsed (GGConfig config)
         { 
             this.Config = config;
             GGVariables.Instance.MapStatus = (Objectives)Config.RemoveObjectives;
+        }
+        private void LoadDBConfig()
+        {
+            string configFile = Server.GameDirectory + "/csgo/cfg/gungame-db.json";
+            if (!File.Exists(configFile))
+            {
+                CreateDefaultConfigFile(configFile);
+            }
+            try
+            {
+                string jsonString = File.ReadAllText(configFile);
+                if (string.IsNullOrEmpty(jsonString))
+                {
+                    Console.WriteLine("[GunGame] ****** LoadDBConfig: Error loading DataBase config. csgo/cfg/gungame-db.json is wrong or empty. Continue without GunGame statistics");
+                    return;
+                }
+                dbSettings = System.Text.Json.JsonSerializer.Deserialize<DatabaseSettings>(jsonString)!;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GunGame] ******* LoadDBConfig: Error reading or deserializing gungame-db.json file: {ex.Message}. Continue without GunGame statistics");
+                return;
+            }
+
+            DBConfig statsDBConfig = dbSettings.StatsDB;
+            DBConfig onlineDBConfig = dbSettings.OnlineDB;
+            statsManager = new(statsDBConfig, this);
+            onlineManager = new(onlineDBConfig, this);
+        }
+        private void CreateDefaultConfigFile(string configFile)
+        {
+            
+            dbSettings.StatsDB = new DBConfig
+            {
+                DatabaseType = "SQLite",
+                DatabaseFilePath = "/csgo/cfg/gungame-db.sqlite",
+                DatabaseHost = "your_mysql_host",
+                DatabaseName = "your_mysql_database",
+                DatabaseUser = "your_mysql_username",
+                DatabasePassword = "your_mysql_password",
+                DatabasePort = 3306,
+                Comment = "use SQLite or MySQL as Database Type"
+            };
+            dbSettings.OnlineDB = new DBConfig
+            {
+                DatabaseType = "MySQL",
+                DatabaseFilePath = "",
+                DatabaseHost = "your_mysql_host",
+                DatabaseName = "your_mysql_database",
+                DatabaseUser = "your_mysql_username",
+                DatabasePassword = "your_mysql_password",
+                DatabasePort = 3306,
+                Comment = "use MySQL only as Database Type"
+            };
+
+            string defaultConfigJson = System.Text.Json.JsonSerializer.Serialize(dbSettings, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(configFile, defaultConfigJson);
         }
         private bool LoadConfig()
         {
@@ -91,12 +153,36 @@ namespace GunGame
         public Dictionary<ulong, int> PlayerHandicapTimes = new();
         private CounterStrikeSharp.API.Modules.Timers.Timer? warmupTimer = null;
         private CounterStrikeSharp.API.Modules.Timers.Timer? endGameTimer = null;
+        private CounterStrikeSharp.API.Modules.Timers.Timer? _infoTimer = null;
+        public delegate void WinnerEventHandler(object sender, WinnerEventArgs e);
+        public event WinnerEventHandler? WinnerEvent;
+        public void RaiseWinnerEvent(int winner, int looser)
+        {
+            var args = new WinnerEventArgs(winner, looser);
+            WinnerEvent?.Invoke(this, args);
+        }
+        public delegate void KillEventHandler(object sender, KillEventArgs e);
+        public event KillEventHandler? KillEvent;
+        public bool RaiseKillEvent(int killer, int victim, string weapon, bool teamkill)
+        {
+            var args = new KillEventArgs(killer, victim, weapon, teamkill);
+            KillEvent?.Invoke(this, args);
+            return args.Result;
+        }
+        public delegate void KnifeStealEventHandler(object sender, WinnerEventArgs e);
+        public event KnifeStealEventHandler? KnifeStealEvent;
+        public void RaiseKnifeStealEvent(int killer, int victim)
+        {
+            var args = new WinnerEventArgs(killer, victim);
+            KnifeStealEvent?.Invoke(this, args);
+        }
         int endGameCount = 0;
         private CounterStrikeSharp.API.Modules.Timers.Timer? HandicapUpdateTimer = null;
         public Dictionary<string, WeaponInfo>Weapon_from_List = new Dictionary<string, WeaponInfo>();
         public SpecialWeaponInfo SpecialWeapon = new();
         public Random random = new();
         public bool[,] g_Shot = new bool[65,65];
+        public string WinnerMessage = "";
         public int HandicapTopWins = 0; // number of wins of a lowest player in TopRank restricted by number HandicapTopRank
         private bool TryGetWeaponInfo(string weaponName, out WeaponInfo weaponInfo)
         {
@@ -131,21 +217,39 @@ namespace GunGame
         }
         public override void Load(bool hotReload)
         {
+            LoadEventSubscribers();
+            LoadDBConfig();
             if (hotReload)
             {
                 Hot_Reload = true;
                 Logger.LogInformation("[GUNGAME] Hot Reload");
             }
-            statsManager = new();
-            if (statsManager.StatsEnable)
-                GGVariables.Instance.StatsEnabled = true;
             
             if (LoadConfig())
             {
                 SetupGameWeapons();
                 SetupWeaponsLevels();
-                
+
                 if (Config.IsPluginEnabled && WeaponLoaded) {
+                    if (hotReload)
+                    {
+                        var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
+                        if (playerEntities != null && playerEntities.Any())
+                        {
+                            foreach (var playerController in playerEntities)
+                            {
+                                if (IsValid(playerController))
+                                {
+                                    var player = playerManager.GetPlayer(playerController, "Hot reload");
+                                    if (player != null)
+                                    {
+                                        StopTripleEffects(player);
+                                        player.ResetPlayer();
+                                    }
+                                }
+                            }
+                        }
+                    }
                     GG_Startup();
                 }
             }
@@ -157,6 +261,10 @@ namespace GunGame
         public override void Unload(bool hotReload)
         {
             //*********************************************
+        }
+        private void LoadEventSubscribers()
+        {
+            // here future development
         }
         private void GG_Startup()
         {
@@ -186,6 +294,10 @@ namespace GunGame
             {
                 HandicapUpdateTimer.Kill();
                 HandicapUpdateTimer = null;
+            }
+            if (_infoTimer == null)
+            {
+                _infoTimer = AddTimer(40.0f, TimerInfo, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
             }
         }
         private void SetupGameWeapons()
@@ -220,13 +332,13 @@ namespace GunGame
                 Logger.LogError($"[GunGame] Error reading or deserializing weapons.json file: {ex.Message}");
                 return;
             }
-            GGVariables.Instance.g_WeaponsMaxId = 0;
+            GGVariables.Instance.WeaponsMaxId = 0;
             foreach (var kvp in Weapon_from_List)
             {
                 WeaponInfo weaponInfo = kvp.Value;
                 if (weaponInfo != null)
                 {
-                    GGVariables.Instance.g_WeaponsMaxId++;
+                    GGVariables.Instance.WeaponsMaxId++;
                     switch (kvp.Key)
                     {
                         case "knife":
@@ -241,48 +353,48 @@ namespace GunGame
                         case "taser":
                             SpecialWeapon.Taser = weaponInfo.Index;
                             SpecialWeapon.TaserLevelIndex = weaponInfo.LevelIndex;
-                            SpecialWeapon.TaserAmmoType = weaponInfo.AmmoType;
+//                            SpecialWeapon.TaserAmmoType = weaponInfo.AmmoType;
                             break;
 
                         case "flashbang":
                             SpecialWeapon.Flashbang = weaponInfo.Index;
-                            GGVariables.Instance.g_WeaponIdFlashbang = weaponInfo.Index;
-                            GGVariables.Instance.g_WeaponAmmoTypeFlashbang = weaponInfo.AmmoType;
+                            GGVariables.Instance.WeaponIdFlashbang = weaponInfo.Index;
+//                            GGVariables.Instance.g_WeaponAmmoTypeFlashbang = weaponInfo.AmmoType;
                             break;
 
                         case "hegrenade":
                             SpecialWeapon.Hegrenade = weaponInfo.Index;
                             SpecialWeapon.HegrenadeLevelIndex = weaponInfo.LevelIndex;
-                            SpecialWeapon.HegrenadeAmmoType = weaponInfo.AmmoType;
+//                            SpecialWeapon.HegrenadeAmmoType = weaponInfo.AmmoType;
                             break;
 
                         case "smokegrenade":
                             SpecialWeapon.Smokegrenade = weaponInfo.Index;
-                            GGVariables.Instance.g_WeaponIdSmokegrenade = weaponInfo.Index;
-                            GGVariables.Instance.g_WeaponAmmoTypeSmokegrenade = weaponInfo.AmmoType;
+                            GGVariables.Instance.WeaponIdSmokegrenade = weaponInfo.Index;
+//                            GGVariables.Instance.g_WeaponAmmoTypeSmokegrenade = weaponInfo.AmmoType;
                             break;
 
                         case "molotov":
                             SpecialWeapon.Molotov = weaponInfo.Index;
                             SpecialWeapon.MolotovLevelIndex = weaponInfo.LevelIndex;
-                            SpecialWeapon.MolotovAmmoType = weaponInfo.AmmoType;
+//                            SpecialWeapon.MolotovAmmoType = weaponInfo.AmmoType;
                             break;
                     }
                 }
             }
-            if (!(GGVariables.Instance.g_WeaponsMaxId != 0
+            if (!(GGVariables.Instance.WeaponsMaxId != 0
                 && SpecialWeapon.Knife != 0
                 && SpecialWeapon.Hegrenade != 0
-                && GGVariables.Instance.g_WeaponIdSmokegrenade != 0
-                && GGVariables.Instance.g_WeaponIdFlashbang != 0))
+                && GGVariables.Instance.WeaponIdSmokegrenade != 0
+                && GGVariables.Instance.WeaponIdFlashbang != 0))
             {
                 string error = string.Format("FATAL ERROR: Some of the weapons not found MAXID=[{0}] KNIFE=[{1}] HE=[{2}] SMOKE=[{3}] FLASH=[{4}]. You should update your {5} and take it from the release zip file.",
-                    GGVariables.Instance.g_WeaponsMaxId, SpecialWeapon.Knife, SpecialWeapon.Hegrenade, GGVariables.Instance.g_WeaponIdSmokegrenade, GGVariables.Instance.g_WeaponIdFlashbang, WeaponFile);
+                    GGVariables.Instance.WeaponsMaxId, SpecialWeapon.Knife, SpecialWeapon.Hegrenade, GGVariables.Instance.WeaponIdSmokegrenade, GGVariables.Instance.WeaponIdFlashbang, WeaponFile);
                 
                 Console.WriteLine(error);
                 return;
             }
-            if (!(SpecialWeapon.HegrenadeAmmoType != 0
+/*            if (!(SpecialWeapon.HegrenadeAmmoType != 0
                 && GGVariables.Instance.g_WeaponAmmoTypeFlashbang != 0
                 && GGVariables.Instance.g_WeaponAmmoTypeSmokegrenade != 0))
             {
@@ -291,7 +403,7 @@ namespace GunGame
 
                 Console.WriteLine(error);
                 return;
-            }
+            } */
             if (SpecialWeapon.Taser == 0)
             {
                 string error = $"FATAL ERROR: Some of the weapons not found TASER=[{SpecialWeapon.Taser}]. You should update your {WeaponFile} and take it from the release zip file.";
@@ -299,12 +411,12 @@ namespace GunGame
                 return;
             }
 
-            if (SpecialWeapon.MolotovAmmoType == 0 || SpecialWeapon.TaserAmmoType == 0)
+/*            if (SpecialWeapon.MolotovAmmoType == 0 || SpecialWeapon.TaserAmmoType == 0)
             {
                 string error = $"FATAL ERROR: Some of the ammo types not found MOLOTOV=[{SpecialWeapon.MolotovAmmoType}] TASER=[{SpecialWeapon.TaserAmmoType}]. You should update your {WeaponFile} and take it from the release zip file.";
                 Console.WriteLine(error);
                 return;
-            }
+            } */
         }
         private void SetupWeaponsLevels()
         {
@@ -318,8 +430,6 @@ namespace GunGame
                 {
                     return;
                 }
-
-                // Deserialize JSON string to Dictionary<string, WeaponInfo>
                 var deserializedDictionary = JsonConvert.DeserializeObject<WeaponOrderSettings>(jsonString);
                 if (deserializedDictionary != null)
                 {
@@ -419,13 +529,18 @@ namespace GunGame
         }
         private void SetupListeners()
         {
-            RegisterListener<Listeners.OnClientConnected>((client) =>
+            RegisterListener<Listeners.OnClientConnect>((slot, name, ip) =>
             {
-                var ggplayer = playerManager.CreatePlayerBySlot(client);
+                var ggplayer = playerManager.CreatePlayerBySlot(slot);
             });
             RegisterListener<Listeners.OnClientAuthorized>(OnClientAuthorized);            
             RegisterListener<Listeners.OnMapStart>(name =>
             {
+                Logger.LogInformation($"[GunGame] map {Server.MapName} loaded");
+                if (onlineManager.OnlineReportEnable)
+                {
+                    _ = onlineManager.ClearAllPlayerData(name);
+                }
                 if (LoadConfig())
                 {
                     SetupGameWeapons();
@@ -464,9 +579,13 @@ namespace GunGame
                 {
                     Logger.LogError("Error loading config on Mapstart");
                 }
+                AddTimer(10.0f, () => {
+                    LogConnections = true;
+                });
             });
             RegisterListener<Listeners.OnMapEnd>(() => 
             {
+                LogConnections = false;
                 if (warmupTimer != null)
                 {
                     warmupTimer.Kill();
@@ -500,7 +619,10 @@ namespace GunGame
                 if (player == null) {
                     return;
                 }
-
+                if (onlineManager.OnlineReportEnable)
+                {
+                    _ = onlineManager.RemovePlayerData(player);
+                }
                 if ( GGVariables.Instance.CurrentLeader.Slot == slot )
                 {
                     RecalculateLeader(slot, (int)player.Level, 0);
@@ -524,11 +646,7 @@ namespace GunGame
                     }
                 } 
                 PlayerLevelsBeforeDisconnect[player.SavedSteamID] = (int) player.Level;
-/*                if (playerController != null && playerController.Pawn != null &&
-                playerController.Pawn.Value != null &&  playerController.Pawn.Value.LifeState == (byte)LifeState_t.LIFE_ALIVE)
-                {
-                    StopTripleEffects(player);
-                } */
+                if (LogConnections) Logger.LogInformation($"{player.PlayerName} ({player.Slot}) disconnected");
                 playerManager.ForgetPlayer(player.Slot);
             }); 
             RegisterListener<Listeners.OnClientDisconnectPost>( slot =>
@@ -541,13 +659,6 @@ namespace GunGame
                         if( playerController.Connected == PlayerConnectedState.PlayerDisconnected)
                         { 
                             //this is just in case to try to fight a cs2 bug when player's pawn stay after disconnect
-/*                            Logger.LogError($"Found and removed disconnected player slot {slot}, team{playerController.TeamNum}");
-                            if (playerController.TeamNum != 1)
-                            {
-                                playerController.SwitchTeam(CsTeam.Spectator);
-                                playerController.SwitchTeam(CsTeam.None);
-                            } */
-                            
                             playerController.CommitSuicide(false,false);
                             playerController.Remove();
                         }
@@ -557,7 +668,7 @@ namespace GunGame
         }
         private void OnClientAuthorized(int slot, SteamID id)
         {
-            var player = playerManager.GetOrCreatePlayerBySlot(slot);
+            var player = playerManager.FindBySlot(slot);
             if (player == null)
             {
                 Logger.LogError($"[GUNGAME]* OnClientAuthorized: Can't create player {slot} {id.SteamId64}");
@@ -570,6 +681,17 @@ namespace GunGame
                 Logger.LogError($"[GUNGAME]* OnClientAuthorized: Can't find playerController for {slot} {id.SteamId64}");
                 return;
             }
+            if (player.Index == -1)
+                player.UpdatePlayerController(playerController);
+            if (playerController.IsBot)
+            {
+                return;
+            }
+/*            else
+            {
+                Logger.LogInformation($"[GUNGAME]* OnClientAuthorized: {playerController.PlayerName} slot {slot} {id.SteamId64} connected");
+            }
+*/
             if (playerController.AuthorizedSteamID == null)
             {
                 Logger.LogInformation($"{playerController.PlayerName} has AuthorizedSteamID - null");
@@ -579,7 +701,7 @@ namespace GunGame
                     Server.ExecuteCommand($"kickid {slot} NoSteamId");
                     return;
                 }
-                AddTimer(3.0f, () =>
+                AddTimer(5.0f, () =>
                 {
                     OnClientAuthorized(slot, id);
                 });
@@ -592,7 +714,7 @@ namespace GunGame
                 {
                     if ( player.Level < level )
                     {
-                        Logger.LogInformation($"[GUNGAME]* OnClientAuthorized: Restore level {level} to {player.PlayerName}");
+//                        Logger.LogInformation($"[GUNGAME]* OnClientAuthorized: Restore level {level} to {player.PlayerName}");
                         player.SetLevel (level); // saved level
                         RecalculateLeader(player.Slot, 0);
                     }
@@ -611,17 +733,17 @@ namespace GunGame
             GGVariables.Instance.MapStatus = 0;
             GGVariables.Instance.HostageEntInfo = 0;
             GGVariables.Instance.IsVotingCalled = false;
-            GGVariables.Instance.isCalledEnableFriendlyFire = false;
-            GGVariables.Instance.isCalledDisableRtv = false;
+            GGVariables.Instance.IsCalledEnableFriendlyFire = false;
+            GGVariables.Instance.IsCalledDisableRtv = false;
             GGVariables.Instance.GameWinner = null;
 
-            GGVariables.Instance.mp_friendlyfire = ConVar.Find("mp_friendlyfire");
+            GGVariables.Instance.Mp_friendlyfire = ConVar.Find("mp_friendlyfire");
 
             PlayerLevelsBeforeDisconnect.Clear();
         }
         public void StartWarmupRound()
         {
-            Console.WriteLine("[GunGame] Start WarmupRound");
+            Console.WriteLine("[GunGame]********** Start WarmupRound");
             warmupInitialized = true;
             WarmupCounter = 0;
             if (warmupTimer == null)
@@ -640,7 +762,7 @@ namespace GunGame
             if ( ++WarmupCounter < Config.WarmupTimeLength )
             {   
                 var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
-                if (playerEntities != null && playerEntities.Count() > 0)
+                if (playerEntities != null && playerEntities.Any())
                 {
                     foreach (var playerController in playerEntities)
                     {
@@ -673,17 +795,16 @@ namespace GunGame
                 Server.ExecuteCommand("exec gungame/gungame.warmupend.cfg");
             }
             Console.WriteLine("WarmUp End");
-            Logger.LogInformation($"HandicapTopWins - {HandicapTopWins}");
             if (Config.ShootKnifeBlock)
             {
-                var playerEntities = Utilities.GetPlayers();
-                if (playerEntities != null && playerEntities.Count > 0)
+                var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
+                if (playerEntities != null && playerEntities.Any())
                 {
                     foreach (var playerController in playerEntities)
                     {
-                        if (IsValid(playerController) && !playerController.IsBot)
+                        if (IsValid(playerController))
                         {
-                            ForgiveShots((int)playerController.Index);
+                            ForgiveShots(playerController.Slot);
                         }
                     }
                 }
@@ -694,7 +815,7 @@ namespace GunGame
 /**************  Events **********************************************************/
         private HookResult EventPlayerSpawnHandler(EventPlayerSpawn @event, GameEventInfo info)
         {
-            Process currentProc = Process.GetCurrentProcess();
+//            Process currentProc = Process.GetCurrentProcess();
             if (!GGVariables.Instance.IsActive) {
                 return HookResult.Continue;
             }
@@ -772,7 +893,7 @@ namespace GunGame
             if (GGVariables.Instance.GameWinner!= null) {
                 if (Config.WinnerFreezePlayers) 
                 {
-                    AddTimer(0.3f, () =>
+                    AddTimer(0.4f, () =>
                     {
                         FreezePlayer(playerController);
                     });
@@ -793,16 +914,19 @@ namespace GunGame
 
             if ( Config.WarmupEnabled && !GGVariables.Instance.WarmupFinished )
             {
-                if (!playerController.IsBot)
-                {
-                    if ( !warmupInitialized ) {
-                        playerController.PrintToChat(Localizer["warmup.notstarted"]);
-                    } else {
-                        playerController.PrintToChat(Localizer["warmup.started"]);
-                    }
-                }
 
                 GiveWarmUpWeaponDelayed(0.5f, client.Slot);
+                AddTimer(0.7f, () => {
+                    if (playerController != null && playerController.IsValid && !playerController.IsBot)
+                    {
+                        if ( !warmupInitialized ) {
+                            playerController.PrintToChat(Localizer["warmup.notstarted"]);
+                        } else {
+                            playerController.PrintToChat(Localizer["warmup.started"]);
+                        }
+                    }
+                });
+                
 
                 return HookResult.Continue;
             }
@@ -867,7 +991,7 @@ namespace GunGame
             }
             if (Config.ShootKnifeBlock)
             {
-                ForgiveShots((int)VictimController.Index);
+                ForgiveShots(VictimController.Slot);
             }
             StopTripleEffects(Victim);
 //            UpdatePlayerScoreDelayed(Victim);
@@ -886,7 +1010,8 @@ namespace GunGame
                     && Victim.Angles.X == angles.X && Victim.Angles.Y == angles.Y
                     && Victim.Origin.X == origin.X && Victim.Origin.Y == origin.Y)
                 {
-                    KillerController?.PrintToCenter(Localizer["kill.afk"]);
+                    if (KillerController != null && KillerController.IsValid && !KillerController.IsBot)
+                        KillerController?.PrintToCenter(Localizer["kill.afk"]);
                     if (Config.AfkAction > 0 && ++Victim.AfkCount >= Config.AfkDeaths)
                     {
                         if (Config.AfkAction == 1) //Kick
@@ -912,12 +1037,12 @@ namespace GunGame
             {
                 if (weapon_used == "world" || weapon_used == "worldent" || weapon_used == "trigger_hurt" || weapon_used == "env_fire")
                 {
-                    Console.WriteLine($"{VictimController.PlayerName} - died from world");
+//                    Console.WriteLine($"{VictimController.PlayerName} - died from world");
                     if ( GGVariables.Instance.RoundStarted && Config.WorldspawnSuicide > 0)
                     {
                         // kill self with world spawn
                         ClientSuicide(Victim, Config.WorldspawnSuicide);
-                        Logger.LogInformation($"{VictimController.PlayerName} killed by {weapon_used}");
+//                        Logger.LogInformation($"{VictimController.PlayerName} killed by {weapon_used}");
                     }
                     return HookResult.Continue;
                 }
@@ -926,14 +1051,13 @@ namespace GunGame
             /* They killed themself by kill command or by hegrenade etc */
             if (IsValid(KillerController) && KillerController.Index == VictimController.Index)
             {
-                Console.WriteLine($"{VictimController.PlayerName} - suicide");
+//                Console.WriteLine($"{VictimController.PlayerName} - suicide");
                 /* (Weapon is event weapon name, can be 'world' or 'hegrenade' etc) */ /* weapon is not 'world' (ie not kill command) */
-                if ( Config.CommitSuicide > 0 && GGVariables.Instance.RoundStarted 
-                && !(weapon_used == "world" || weapon_used == "world ent") && !Victim.TeamChange )
+                if ( Config.CommitSuicide > 0 && GGVariables.Instance.RoundStarted && !Victim.TeamChange )
                 {
                     // killed himself by kill command or by hegrenade
                     ClientSuicide(Victim, Config.CommitSuicide);
-                    Logger.LogInformation($"{VictimController.PlayerName} killed by {weapon_used} - Commit Suicide");
+//                    Logger.LogInformation($"{VictimController.PlayerName} killed by {weapon_used} - Commit Suicide");
                 }
                 return HookResult.Continue;
             }
@@ -979,6 +1103,9 @@ namespace GunGame
             /*************** FFA - teamkill is considered as kill ****************/
             bool TeamKill = (!Config.FriendlyFireAllowed) && (VictimController.TeamNum == KillerController.TeamNum);
 
+            bool AcceptKill = RaiseKillEvent (KillerController.Slot, VictimController.Slot, weapon_used, TeamKill);
+//            if (!AcceptKill)
+//                return HookResult.Continue;
 /*            Call_StartForward(FwdDeath);
             Call_PushCell(Killer);
             Call_PushCell(Victim);
@@ -1004,13 +1131,15 @@ namespace GunGame
                             if (HumansPlay() != 1)                  // but only if no other humsns 
                             {
                                 stop_further_processing = true;
-                                if (KillerController.IsValid) KillerController.PrintToChat(Localizer["cantknife.leveluponbotwithhumans"]);
+                                if (KillerController.IsValid && !Killer.IsBot) 
+                                    KillerController.PrintToChat(Localizer["cantknife.leveluponbotwithhumans"]);
                             }
                         }
                         else
                         {
                             stop_further_processing = true;
-                            if (KillerController.IsValid) KillerController.PrintToChat(Localizer["cantknife.leveluponbot"]);
+                            if (KillerController.IsValid && !Killer.IsBot) 
+                                KillerController.PrintToChat(Localizer["cantknife.leveluponbot"]);
                         }
                     }
                 }
@@ -1023,13 +1152,15 @@ namespace GunGame
                             if (HumansPlay() != 1)                  // but only if no other humsns 
                             {
                                 stop_further_processing = true;
-                                if (KillerController.IsValid) KillerController.PrintToChat(Localizer["canthe.leveluponbotwithhumans"]);
+                                if (KillerController.IsValid && !Killer.IsBot) 
+                                    KillerController.PrintToChat(Localizer["canthe.leveluponbotwithhumans"]);
                             }
                         }
                         else
                         {
                             stop_further_processing = true;
-                            if (KillerController.IsValid) KillerController.PrintToChat(Localizer["canthe.leveluponbot"]);
+                            if (KillerController.IsValid && !Killer.IsBot) 
+                                KillerController.PrintToChat(Localizer["canthe.leveluponbot"]);
                         }
                     }
                 }
@@ -1125,7 +1256,8 @@ namespace GunGame
                         Server.PrintToChatAll (Localizer["level.stolen", Killer.PlayerName, Victim.PlayerName]);
                         if (usedWeaponInfo.LevelIndex == SpecialWeapon.KnifeLevelIndex) 
                         {
-//                                PlayRandomSoundDelayed(0.7f, Config.KnifeKillSound);
+                            PlayRandomSoundDelayed(0.7f, Config.KnifeStealSound);
+                            RaiseKnifeStealEvent(KillerController.Slot, VictimController.Slot);
                     /***** Here a function call is started that tells others that they have been killed with a knife ********
                         *       Call_StartForward(FwdKnifeSteal);
                         *       Call_PushCell(Killer);
@@ -1310,12 +1442,12 @@ namespace GunGame
             var victim = eventInfo.Userid; 
             var weapon = eventInfo.Weapon;
 
-            if (attacker != null && victim != null && IsPlayer((int)attacker.Index) && IsPlayer((int)victim.Index))
+            if (attacker != null && victim != null && IsPlayer(attacker.Slot) && IsPlayer(victim.Slot))
             {
                 bool found = false;
                 if (IsWeaponKnife(weapon)) // if damage by knife
                 {
-                    if (g_Shot[(int)attacker.Index, (int)victim.Index])
+                    if (g_Shot[attacker.Slot, victim.Slot])
                     {
                         if (attacker.PlayerPawn != null && attacker.PlayerPawn.Value != null
                         &&  attacker.PlayerPawn.Value.WeaponServices != null)
@@ -1338,10 +1470,17 @@ namespace GunGame
                             if (found) // punish him for shoot and knife
                             {
     //                            attacker.PlayerPawn.Value.Render = Color.FromArgb(255, 255, 0, 0);
+                                if (victim.PlayerPawn != null && victim.PlayerPawn.Value != null)
+                                {
+                                    victim.PlayerPawn.Value.Health += eventInfo.DmgHealth;
+                                }
                                 AddTimer(0.2f, () =>
                                 {
                                     attacker.CommitSuicide(true,true);
-                                    attacker.PrintToCenter(Localizer["dontshoot.knife"]);
+                                    if (!attacker.IsBot)
+                                    {
+                                        attacker.PrintToCenter(Localizer["dontshoot.knife"]);
+                                    }
                                     Server.PrintToChatAll(Localizer["triedshoot.knife", attacker.PlayerName]);
                                 });
                                 
@@ -1351,7 +1490,7 @@ namespace GunGame
                 }
                 else if (!weapon.Equals("hegrenade"))
                 {
-                    g_Shot[(int)attacker.Index, (int)victim.Index] = true;
+                    g_Shot[attacker.Slot, victim.Slot] = true;
                 }
             }
             return HookResult.Continue;
@@ -1377,64 +1516,96 @@ namespace GunGame
             int oldTeam = @event.Oldteam;
             int newTeam = @event.Team;
             bool disconnect = @event.Disconnect;
+
+            if (@event.Isbot || !(newTeam == 2 || newTeam == 3 || oldTeam == 2 || oldTeam == 3))
+            {
+                return HookResult.Continue;
+            }
             
-            if ( oldTeam == (int)CsTeam.Terrorist)
-            {
-                GGVariables.Instance.Tcount--;
-                if (GGVariables.Instance.Tcount < 0) {
-                    GGVariables.Instance.Tcount = 0;
-                }
-            }
-            else if (oldTeam == (int)CsTeam.CounterTerrorist)
-            {
-                GGVariables.Instance.CTcount--;
-                if (GGVariables.Instance.CTcount < 0) {
-                    GGVariables.Instance.CTcount = 0;
-                }
-            }
-
-            /* Player disconnected and didn't join a new team */
-            if ( !disconnect )
-            {
-                if ( newTeam == (int)CsTeam.Terrorist) {
-                    GGVariables.Instance.Tcount++;
-                }
-                else if (newTeam == (int)CsTeam.CounterTerrorist) {
-                    GGVariables.Instance.CTcount++;
-                }
-            }
-
-            if ( Config.UnlimitedNadesMinPlayers > 0)
-            {
-                if ( GGVariables.Instance.Tcount <= Config.UnlimitedNadesMinPlayers || GGVariables.Instance.CTcount <= Config.UnlimitedNadesMinPlayers )
+            AddTimer (0.5f, () => {
+                GGVariables.Instance.Tcount = CountPlayersForTeam(CsTeam.Terrorist);
+                GGVariables.Instance.CTcount = CountPlayersForTeam(CsTeam.CounterTerrorist);
+                if ( Config.UnlimitedNadesMinPlayers > 0)
                 {
-                    Config.UnlimitedNades = true;
+                    if ( GGVariables.Instance.Tcount <= Config.UnlimitedNadesMinPlayers || GGVariables.Instance.CTcount <= Config.UnlimitedNadesMinPlayers )
+                    {
+                        Config.UnlimitedNades = true;
+                    }
+                    else
+                    {
+                        Config.UnlimitedNades = false;
+                    }
+                }
+            });
+
+            if (disconnect || newTeam == 0)
+            {
+                return HookResult.Continue;
+            }
+            CCSPlayerController playerController = @event.Userid;
+            
+            if (!IsValid(playerController) || playerController.IsBot) {
+                return HookResult.Continue;
+            }
+            var player = playerManager.GetPlayer(playerController, "EventPlayerTeamHandler");
+            if (player == null)
+            {
+                Logger.LogError($"[GunGame] EventPlayerTeamHandler: player == null: oldTeam {oldTeam}, newTeam {newTeam}, disconnect {(disconnect ? "yes" : "no")}, slot {playerController.Slot}, {playerController.PlayerName}");
+                return HookResult.Continue;
+            }
+            if (player.SavedSteamID != 0)
+            {
+                if (onlineManager.OnlineReportEnable)
+                {
+                    if (newTeam == (int)CsTeam.Terrorist)
+                        _ = onlineManager.SavePlayerData(player, "t");
+                    else if (newTeam == (int)CsTeam.CounterTerrorist)
+                        _ = onlineManager.SavePlayerData(player, "ct");
+                    else if (newTeam == (int)CsTeam.Spectator)
+                        _ = onlineManager.SavePlayerData(player, "spectr");
+                }
+            }
+            else
+            {
+                if (!player.IsBot && player.SteamIDTimer == null)
+                {
+                    player.SteamIDTimer = AddTimer(30.0f, player.UpdatePlayerSteamID, TimerFlags.STOP_ON_MAPCHANGE);
+                    Logger.LogInformation($"Started SteamID 30 sec timer to get {playerController.PlayerName} SteamID");
+                }
+            }
+/*            if (LogConnections && !player.IsBot && GGVariables.Instance.CTcount < 5 && GGVariables.Instance.Tcount < 5)
+            {
+                var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
+                int count = 0;
+                if (playerEntities != null)
+                {
+                    count = playerEntities.Count();
+                    foreach (var pc in playerEntities)
+                    {
+                        if (pc != null && pc.IsValid)
+                        {
+                            Logger.LogInformation($"{pc.PlayerName} - {pc.TeamNum}");
+                        }
+                    }
                 }
                 else
                 {
-                    Config.UnlimitedNades = false;
+                    Logger.LogInformation("EventPlayerTeamHandler: No players found");
                 }
-            }
-            CCSPlayerController playerController = @event.Userid;
-            if (!IsValid(playerController)) {
-                return HookResult.Continue;
-            }
-
-            var player = playerManager.GetPlayer(playerController, "EventPlayerTeamHandler");
-            if ( player != null && !disconnect && (oldTeam >= 2) && (newTeam >= 2) && playerController.PawnIsAlive )
+                Logger.LogInformation($"Players {count}, CT {GGVariables.Instance.CTcount}, T {GGVariables.Instance.Tcount}, {playerController.PlayerName}, oldT {oldTeam}, newT {newTeam}, disconnect {(disconnect ? "yes" : "no")}");
+            } */
+                
+            if ( oldTeam >= 2 && newTeam >= 2)
             {
-                StopTripleEffects(player);
+//                StopTripleEffects(player);
+                player.TeamChange = true;
             }
-            if ( player == null || disconnect || (oldTeam < 2) || (newTeam < 2) || !playerController.PawnIsAlive || (oldTeam == newTeam) )
-            {
-                return HookResult.Continue;
-            }
-            player.TeamChange = true;
             return HookResult.Continue;
         }
         private HookResult EventRoundStartHandler<T>(T @event, GameEventInfo info) where T : GameEvent
         {
             Console.WriteLine("[GUNGAME]********* Event Round Start");
+            Logger.LogInformation("[GUNGAME]********* Event Round Start");
             if ( !GGVariables.Instance.IsActive )
             {
                 return HookResult.Continue;
@@ -1453,11 +1624,14 @@ namespace GunGame
 
             for (int i = 0; i <= Models.Constants.MaxPlayers; i++)
             {
-                var client = playerManager.FindBySlot(i);
-                if (client != null)
+                if (playerManager.PlayerExists(i))
                 {
-                    client.SetLevel(1);
-                    UpdatePlayerScoreLevel(client.Slot);
+                    var client = playerManager.FindBySlot(i);
+                    if (client != null)
+                    {
+                        client.SetLevel(1);
+                        UpdatePlayerScoreLevel(client.Slot);
+                    }
                 }
             }
             if (!warmupInitialized && Config.WarmupEnabled && warmupTimer == null && !GGVariables.Instance.WarmupFinished)
@@ -1500,6 +1674,7 @@ namespace GunGame
         private HookResult EventRoundEndHandler<T>(T @event, GameEventInfo info) where T : GameEvent
         {
             /* Round has ended. */
+            LogConnections = false;
             GGVariables.Instance.RoundStarted = false;
             Hot_Reload = false;
             return HookResult.Continue;
@@ -1511,7 +1686,7 @@ namespace GunGame
             {
                 return HookResult.Continue;
             }
-            var player = playerManager.GetPlayer(playerController); 
+            var player = playerManager.GetPlayer(playerController, "EventHegrenadeDetonateHandler"); 
 
             if (player == null) {
                 return HookResult.Continue;
@@ -1606,14 +1781,14 @@ namespace GunGame
         {
             AddTimer(delay, () =>
             {
-                CCSPlayerController playerController = Utilities.GetPlayerFromSlot(slot); // index is captured from the local variable
+                var playerController = Utilities.GetPlayerFromSlot(slot);
                 
                 if (IsValid(playerController) && playerController.Pawn != null && 
                 playerController.Pawn.Value != null && playerController.Pawn.Value.LifeState == (byte)LifeState_t.LIFE_ALIVE ) 
                 {
                     var player = playerManager.FindBySlot(slot);
                     if (player == null) {
-                        Console.WriteLine($"[ERROR] Timer_GiveWarmUpWeapon: cant get player for slot {slot}");
+                        Logger.LogError($"[ERROR] GiveWarmUpWeapon: can't get player for slot {slot}");
                         return;
                     } 
                     if (Config.WarmupRandomWeaponMode > 0) 
@@ -1633,6 +1808,7 @@ namespace GunGame
                         }
                     }
                     playerController.RemoveWeapons();
+
                     if ( Config.ArmorKevlarHelmet ) playerController.GiveNamedItem("item_assaultsuit");
                     playerController.GiveNamedItem("weapon_knife");
 
@@ -1659,12 +1835,14 @@ namespace GunGame
             {
                 return;
             }
+            
             playerController.RemoveWeapons();
+
             if ( Config.ArmorKevlarHelmet ) playerController.GiveNamedItem("item_assaultsuit");
             bool dropKnife;
             var player = playerManager.FindBySlot(slot);
             if (player == null) {
-                Console.WriteLine($"[ERROR] GiveNextWeapon: cant get player for slot {slot}");
+                Logger.LogError($"[ERROR] GiveNextWeapon: cant get player for slot {slot}");
                 return;
             } 
             if (player.LevelWeapon.LevelIndex == SpecialWeapon.Drop_knife) {
@@ -1777,14 +1955,17 @@ namespace GunGame
 //                        }
                         player.UseWeapon(3);
                         // Change Color of Knife to Gold. - it doesn't work now
-                        if (playerController.PlayerPawn != null && playerController.PlayerPawn.Value != null 
-                            && playerController.PlayerPawn.Value.WeaponServices != null 
-                            && playerController.PlayerPawn.Value.WeaponServices.ActiveWeapon != null)
+                        if (player.Level == GGVariables.Instance.WeaponOrderCount) // on the last level
                         {
-                            var activeWeapon = playerController.PlayerPawn.Value.WeaponServices?.ActiveWeapon.Value;
-                            if (activeWeapon != null)
+                            if (playerController.PlayerPawn != null && playerController.PlayerPawn.Value != null 
+                                && playerController.PlayerPawn.Value.WeaponServices != null 
+                                && playerController.PlayerPawn.Value.WeaponServices.ActiveWeapon != null)
                             {
-                                activeWeapon.Render = Color.FromArgb(255, 223, 0);
+                                var activeWeapon = playerController.PlayerPawn.Value.WeaponServices?.ActiveWeapon.Value;
+                                if (activeWeapon != null)
+                                {
+                                    activeWeapon.Render = Color.FromArgb(255, 223, 0);
+                                }
                             }
                         }
                     }
@@ -1808,6 +1989,19 @@ namespace GunGame
                 // LEVEL WEAPON PRIMARY/SECONDARY
                 /* Give new weapon */
                 playerController.GiveNamedItem(player.LevelWeapon.FullName);
+                var weapon = playerController.PlayerPawn?.Value?.WeaponServices?.ActiveWeapon?.Value;
+                if (weapon != null && weapon.IsValid)
+                {
+                    var wep = new CCSWeaponBase(weapon.Handle);
+
+                    if (wep != null && wep.IsValid)
+                    {
+                        Server.NextFrame(() =>
+                        {
+                            wep.NextPrimaryAttackTick = Server.TickCount + 1;
+                        });
+                    }
+                }
             }
 
             if (player.LevelWeapon.Slot == 4)  // grenades slot
@@ -1923,13 +2117,13 @@ namespace GunGame
                 GGVariables.Instance.PlayerOnGrenade++;
                 player.State |= PlayerStates.GrenadeLevel;
 
-                if (GGVariables.Instance.mp_friendlyfire == null)
+                if (GGVariables.Instance.Mp_friendlyfire == null)
                 {
                     Console.WriteLine("GGVariables.Instance.mp_friendlyfire == null");
                     return;
                 }
 
-                if ( !GGVariables.Instance.mp_friendlyfire.GetPrimitiveValue<bool>() )
+                if ( !GGVariables.Instance.Mp_friendlyfire.GetPrimitiveValue<bool>() )
                 {
                     if ( Config.FriendlyFireOnOff ) {
                         ChangeFriendlyFire(true);
@@ -1954,17 +2148,17 @@ namespace GunGame
         }
         private static void SetClientScoreAndDeaths (int player)
         {
-            // then we'll learn
+            // when we'll learn
         }
         private static void FreezeAllPlayers()
         {
-            if (GGVariables.Instance.mp_friendlyfire != null)
+            if (GGVariables.Instance.Mp_friendlyfire != null)
             {
-                GGVariables.Instance.mp_friendlyfire.SetValue(false);
+                GGVariables.Instance.Mp_friendlyfire.SetValue(false);
             }
             
-            var playerEntities = Utilities.GetPlayers();
-            if (playerEntities != null && playerEntities.Count > 0)
+            var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
+            if (playerEntities != null && playerEntities.Any())
             {
                 foreach (var playerController in playerEntities)
                 {
@@ -2035,7 +2229,7 @@ namespace GunGame
             if ( IsValid(playerController)) {
                 if (!playerController.IsBot)
                 {
-                    var player = playerManager.GetPlayer(playerController);
+                    var player = playerManager.GetPlayer(playerController, "PlaySound pc");
                     if (player != null && player.Music) 
                         playerController.ExecuteClientCommand("play " + str);
                 }
@@ -2045,11 +2239,11 @@ namespace GunGame
             else
             {
                 var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
-                if (playerEntities != null && playerEntities.Count() > 0)
+                if (playerEntities != null && playerEntities.Any())
                 {
                     foreach (var pc in playerEntities)
                     {
-                        var player = playerManager.GetPlayer(pc);
+                        var player = playerManager.GetPlayer(pc, "PlaySound all");
                         if (player != null && player.Music) 
                             pc.ExecuteClientCommand("play " + str);
                     }
@@ -2064,18 +2258,21 @@ namespace GunGame
         {
             if (soundList == null || soundList.Count == 0)
             {
-                Console.WriteLine("The sound list is empty or null.");
+                Logger.LogError("The sound list is empty or null.");
                 return;
             }
             int index = random.Next(soundList.Count);
             var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
-            if (playerEntities != null && playerEntities.Count() > 0)
+            if (playerEntities != null && playerEntities.Any())
             {
                 foreach (var playerController in playerEntities)
                 {
-                    var player = playerManager.GetPlayer(playerController);
-                    if (player != null && player.Music) 
-                        playerController.ExecuteClientCommand("play " + soundList[index]);
+                    if (playerController != null && playerController.IsValid)
+                    {
+                        var player = playerManager.GetPlayer(playerController, "PlayRandomSound");
+                        if (player != null && player.Music) 
+                            playerController.ExecuteClientCommand("play " + soundList[index]);
+                    }
                 }
             }
         }
@@ -2234,27 +2431,26 @@ namespace GunGame
             int leaderId = -1;
             int leaderLevel = 0;
             int currentLevel;
-            var playerEntities = Utilities.GetPlayers().ValidOnly();
-            if (playerEntities.Any())
+            var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
+            if (playerEntities != null && playerEntities.Any())
             {
                 foreach (var playerController in playerEntities)
                 {
-                    if (playerController.UserId < 0 || playerController.UserId > Models.Constants.MaxPlayers)
+                    if (playerController != null && playerController.IsValid)
                     {
-                        continue;
-                    }
-                    var player = playerManager.FindByIndex((int)playerController.Index);
+                        var player = playerManager.GetPlayer(playerController);
 
-                    if (player == null)
-                    {
-                        continue;
-                    }
-                    currentLevel = (int) player.Level;
+                        if (player == null)
+                        {
+                            continue;
+                        }
+                        currentLevel = (int) player.Level;
 
-                    if ( currentLevel > leaderLevel )
-                    {
-                        leaderLevel = currentLevel;
-                        leaderId = player.Index;
+                        if ( currentLevel > leaderLevel )
+                        {
+                            leaderLevel = currentLevel;
+                            leaderId = player.Slot;
+                        }
                     }
                 }
             }
@@ -2288,10 +2484,10 @@ namespace GunGame
         }
         private void ChangeFriendlyFire (bool Status)
         {
-            if (GGVariables.Instance.mp_friendlyfire == null)
+            if (GGVariables.Instance.Mp_friendlyfire == null)
                 return;
-            GGVariables.Instance.mp_friendlyfire.Public = true; // set FCVAR_NOTIFY
-            GGVariables.Instance.mp_friendlyfire.SetValue(Status);
+            GGVariables.Instance.Mp_friendlyfire.Public = true; // set FCVAR_NOTIFY
+            GGVariables.Instance.Mp_friendlyfire.SetValue(Status);
             if (Status) {
                 Server.PrintToChatAll(Localizer["friendlyfire.on"]);
             } else {
@@ -2317,11 +2513,11 @@ namespace GunGame
                 return;
             }
             var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
-            if (playerEntities != null && playerEntities.Count() > 0)
+            if (playerEntities != null && playerEntities.Any())
             {
                 foreach (var playerController in playerEntities)
                 {
-                    var player = playerManager.FindBySlot(playerController.Slot); 
+                    var player = playerManager.GetPlayer(playerController); 
                     if (player != null && playerController.TeamNum > 0 && player.Level == minimum)
                     {
                         if ( Config.HandicapSkipBots && playerController.IsBot ) {
@@ -2355,7 +2551,7 @@ namespace GunGame
             int minimum = -1;
             int level = 0;
             var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
-            if (playerEntities != null && playerEntities.Count() > 0)
+            if (playerEntities != null && playerEntities.Any())
             {
                 foreach (var playerController in playerEntities)
                 {
@@ -2365,7 +2561,7 @@ namespace GunGame
                         {
                             continue;
                         }
-                        var player = playerManager.FindBySlot(playerController.Slot);
+                        var player = playerManager.GetPlayer(playerController);
                         if (player != null)
                         {
                             level = (int)player.Level;
@@ -2407,7 +2603,7 @@ namespace GunGame
         {
             int count = 0, level = 0, tmpLevel;
             var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
-            if (playerEntities != null && playerEntities.Count() > 0)
+            if (playerEntities != null && playerEntities.Any())
             {
                 foreach (var playerController in playerEntities)
                 {
@@ -2417,7 +2613,7 @@ namespace GunGame
                         {
                             continue;
                         }
-                        var player = playerManager.FindBySlot(playerController.Slot);
+                        var player = playerManager.GetPlayer(playerController);
                         if (player != null)
                         {
                             tmpLevel = (int) player.Level;
@@ -2475,6 +2671,7 @@ namespace GunGame
             int level = GetHandicapLevel(player.Slot);
             if ( player.Level < level )
             {
+                Logger.LogInformation($"Give Handicap level to {player.PlayerName} ({player.Slot}), up from {player.Level} to {level}");
                 player.SetLevel(level);
                 player.CurrentKillsPerWeap = 0;
                 UpdatePlayerScoreLevel(player.Slot);
@@ -2508,22 +2705,12 @@ namespace GunGame
             if ( oldLevel == newLevel ) {
                 return;
             }
-            var playerEntities = Utilities.GetPlayers();
-            if (playerEntities != null && playerEntities.Count > 0)
+            if (loose > 1) {
+                Server.PrintToChatAll(Localizer["suiside.levels", player.PlayerName, loose]);
+            }
+            else
             {
-                foreach (var playerController in playerEntities)
-                {
-                    if ( playerController.IsValid && !playerController.IsBot 
-                        && !playerController.IsHLTV && IsClientInTeam(playerController) )
-                    {
-                        if (loose > 1) {
-                                playerController.PrintToChat(Localizer["suiside.levels", playerController.PlayerName, loose]);
-                        }
-                        else {
-                                playerController.PrintToChat(Localizer["suiside.alevel", playerController.PlayerName]);
-                        }
-                    }
-                }
+                Server.PrintToChatAll(Localizer["suiside.alevel", player.PlayerName, loose]);
             }
             PrintLeaderToChat(player, oldLevel, newLevel);
         }
@@ -2552,7 +2739,8 @@ namespace GunGame
                 if (IsValid(playerController))
                 {
                     // say how much to the lead
-                    playerController.PrintToChat(Localizer["levels.behind", GGVariables.Instance.CurrentLeader.Level-newLevel]);
+                    if (!playerController.IsBot) 
+                        playerController.PrintToChat(Localizer["levels.behind", GGVariables.Instance.CurrentLeader.Level-newLevel]);
                     return;
                 }
             }
@@ -2584,15 +2772,15 @@ namespace GunGame
                 Server.ExecuteCommand("exec gungame/gungame.mapvote.cfg");
             }
 
-            if ( Config.DisableRtvLevel > 0 && !GGVariables.Instance.isCalledDisableRtv && Level >= Config.DisableRtvLevel )
+            if ( Config.DisableRtvLevel > 0 && !GGVariables.Instance.IsCalledDisableRtv && Level >= Config.DisableRtvLevel )
             {
-                GGVariables.Instance.isCalledDisableRtv = true;
+                GGVariables.Instance.IsCalledDisableRtv = true;
                 Server.ExecuteCommand("exec gungame/gungame.disable_rtv.cfg");
             }
             
-            if ( Config.EnableFriendlyFireLevel > 0 && !GGVariables.Instance.isCalledEnableFriendlyFire && Level >= Config.EnableFriendlyFireLevel  )
+            if ( Config.EnableFriendlyFireLevel > 0 && !GGVariables.Instance.IsCalledEnableFriendlyFire && Level >= Config.EnableFriendlyFireLevel  )
             {
-                GGVariables.Instance.isCalledEnableFriendlyFire = true;
+                GGVariables.Instance.IsCalledEnableFriendlyFire = true;
                 if ( Config.FriendlyFireOnOff ) {
                     ChangeFriendlyFire(true);
                 } else {
@@ -2602,27 +2790,44 @@ namespace GunGame
             
             if ( Level > GGVariables.Instance.WeaponOrderCount )
             {
-                /* Winner Winner Winner. They won the prize of gaben plus a hat. */
+                /* Winner Winner Winner */
                 GGVariables.Instance.GameWinner = new(player);
-
+                Logger.LogInformation($"Winner {player.PlayerName}");
+                string fontColour;
+                int winnerTeam = player.GetTeam();
+                if (winnerTeam == 2 )
+                {
+                    fontColour = "#FF5959";
+                }
+                else if (winnerTeam == 3 )
+                {
+                    fontColour = "#00BFFF";
+                }
+                else 
+                {
+                    fontColour = "#FFFFFF";
+                }
+                 
+                WinnerMessage = "<font color='"+fontColour+"'>"+Localizer["winner.is",player.PlayerName]+"<br>"+Localizer["looser.is",CounterpartController.PlayerName]+"</font>";
+                Server.PrintToChatAll(Localizer["winner.is", player.PlayerName]);
+                Listeners.OnTick onTick = new(OnTickHandle);
+                RegisterListener(onTick);
+                AddTimer(15.0f, () => {
+                    RemoveListener("OnTick", onTick);
+                });
                 /*
                 int r = (team == TEAM_T ? 255 : 0);
                 int g =  team == TEAM_CT ? 128 : (team == TEAM_T ? 0 : 255);
                 int b = (team == TEAM_CT ? 255 : 0);
                 UTIL_PrintToUpperLeft(r, g, b, "%t", "Has won", Name); */
 
-                var playerEntities = Utilities.GetPlayers();
-                if (playerEntities != null && playerEntities.Count > 0)
+                int winnerSlot = player.Slot;
+                int looserSlot = -1;
+                if (CounterpartController != null && CounterpartController.IsValid && !CounterpartController.IsBot)
                 {
-                    foreach (var playerController in playerEntities)
-                    {
-                        if (IsValid(playerController) && !playerController.IsBot)
-                        {
-                            playerController.PrintToCenterHtml(Localizer["winner.is", GGVariables.Instance.GameWinner.Name]);
-                        }
-                    }
+                    looserSlot = CounterpartController.Slot;
                 }
-
+                RaiseWinnerEvent(winnerSlot, looserSlot);
 /*                Call_StartForward(FwdWinner);
                 Call_PushCell(client);
                 Call_PushString(WeaponOrderName[Level - 1]);
@@ -2631,9 +2836,7 @@ namespace GunGame
 
                 if (!(Config.DontAddWinsOnBot && CounterpartController != null && CounterpartController.IsValid && CounterpartController.IsBot))
                 {
-                    player.PlayerWins++;
-		            _ = statsManager.SavePlayerData(player);
-                    StatsLoadRank();
+                    SavePlayerWins(player);
                 }
                 
                 if (Config.WinnerFreezePlayers) {
@@ -2663,14 +2866,25 @@ namespace GunGame
 
             // Client got new level
             player.SetLevel(Level);
+            RecalculateLeader(player.Slot, oldLevel, Level);
             if ( KnifeSteal && Config.KnifeProRecalcPoints && (oldLevel != Level) ) {
                 player.CurrentKillsPerWeap = player.CurrentKillsPerWeap * GetCustomKillPerLevel(Level) / GetCustomKillPerLevel(oldLevel);
             } else {
                 player.CurrentKillsPerWeap = 0;
             }
+            
             var pc = Utilities.GetPlayerFromSlot(player.Slot);
             if ( IsValid(pc))
             {
+                if (onlineManager.OnlineReportEnable && player != null)
+                {
+                    if (pc.TeamNum == (int)CsTeam.Terrorist)
+                        _ = onlineManager.SavePlayerData(player, "t");
+                    else if (pc.TeamNum == (int)CsTeam.CounterTerrorist)
+                        _ = onlineManager.SavePlayerData(player, "ct");
+                    else if (pc.TeamNum == (int)CsTeam.Spectator)
+                        _ = onlineManager.SavePlayerData(player, "spectr");
+                }
                 if ( difference < 0 )
                 {
                     PlaySound(pc, Config.LevelDownSound);
@@ -2687,10 +2901,23 @@ namespace GunGame
                     }
                 }
             }
-            RecalculateLeader(player.Slot, oldLevel, Level);
 //            UpdatePlayerScoreDelayed(player);
 
             return Level;
+        }
+        public void SavePlayerWins(GGPlayer player)
+        {
+            Logger.LogInformation($"{player.PlayerName} won, wins was {player.PlayerWins}");
+            if (player.PlayerWins < 0)
+            {
+                Logger.LogError($"{player.PlayerName} win, but his PlayerWins is less than 0, so data need to be updated");
+            }
+            if (player.SavedSteamID == 0)
+            {
+                Logger.LogError($"{player.PlayerName} slot {player.Slot} win, but his SteamID is 0, so data can't be saved");
+                return;
+            }
+            _ = statsManager.SavePlayerWin(player);
         }
         public void ForgiveShots(int client)
         {
@@ -2703,6 +2930,7 @@ namespace GunGame
         }
         private void EndMultiplayerGameDelayed()
         {
+            LogConnections = false;
             if (Config.EndGameDelay > 0) {
                 Console.WriteLine($"Call EndMultiplayerGame in {Config.EndGameDelay} seconds");
                 endGameTimer??= AddTimer(1.0f, EndMultiplayerGame, TimerFlags.REPEAT | TimerFlags.STOP_ON_MAPCHANGE);
@@ -2723,7 +2951,7 @@ namespace GunGame
                 if (seconds < 6)
                 {
                     var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
-                    if (playerEntities != null && playerEntities.Count() > 0)
+                    if (playerEntities != null && playerEntities.Any())
                     {
                         foreach (var playerController in playerEntities)
                         {
@@ -2742,10 +2970,10 @@ namespace GunGame
                 endGameTimer = null;
             }
             if (Config.EndGameSilent) {
-                Logger.LogInformation($"Call EndMultiplayerGameSilent now");
+//                Logger.LogInformation($"Call EndMultiplayerGameSilent now");
                 EndMultiplayerGameSilent();
             } else {
-                Logger.LogInformation($"Call EndMultiplayerGameNormal now");
+//                Logger.LogInformation($"Call EndMultiplayerGameNormal now");
                 EndMultiplayerGameNormal();
             }
         }
@@ -2810,7 +3038,7 @@ namespace GunGame
                  && ((CsTeam)p.TeamNum == CsTeam.Terrorist || (CsTeam)p.TeamNum == CsTeam.CounterTerrorist)
                  && !p.IsBot && !p.IsHLTV).Count();
         }
-        private async void StatsLoadRank()
+        public async void StatsLoadRank()
         {
 //            StatsSQLManager _statsManager = new(dbConnectionString);
 		    int TotalWinners = await statsManager.GetNumberOfWinners();
@@ -2844,29 +3072,72 @@ namespace GunGame
             }
             return true;
         }
-        private static bool IsPlayer(int index)
+        private static bool IsPlayer(int slot)
         {
-            return index > -1 && index <= Models.Constants.MaxPlayers;
+            return slot > -1 && slot <= Models.Constants.MaxPlayers;
         }
+        public static int CountPlayersForTeam(CsTeam team)
+        {
+            return Utilities.GetPlayers()
+            .Where(
+                player =>
+                IsValid(player)
+                && player.Connected == PlayerConnectedState.PlayerConnected
+                && player.Team == team
+            )
+            .Count();
+        }
+        private void OnTickHandle()
+        {
+            var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
+            if (playerEntities != null && playerEntities.Any())
+            {
+                foreach (var playerController in playerEntities)
+                {
+                    if (IsValid(playerController))
+                    {
+                        playerController.PrintToCenterHtml(WinnerMessage);
+                    }
+                }
+            }
+        }
+        private void TimerInfo()
+        {
+            string message = "";
+            if (GGVariables.Instance.InfoMessages.Count > 0)
+            {
+                message = GGVariables.Instance.InfoMessages[GGVariables.Instance.InfoMessageIndex];
+
+                // Increment the index for the next message
+                GGVariables.Instance.InfoMessageIndex++;
+
+                // Reset the index if it reaches the end of the list
+                if (GGVariables.Instance.InfoMessageIndex >= GGVariables.Instance.InfoMessages.Count)
+                {
+                    GGVariables.Instance.InfoMessageIndex = 0;
+                }
+            }
+            var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected);
+            if (playerEntities != null)
+            {
+                foreach (var player in playerEntities)
+                {
+                    if (player != null && !player.IsBot && !player.IsHLTV)
+                    {
+                        player.PrintToChat(Localizer[message]);
+                    }
+                }
+            }
+        }     
 
         [ConsoleCommand("music", "Turn On/off GG sounds")]
         public async void OnMusicCommand(CCSPlayerController? playerController, CommandInfo command)
         {
             if (playerController != null && playerController.IsValid)
             {
-                var player = playerManager.GetPlayer(playerController);
+                var player = playerManager.GetPlayer(playerController, "OnMusicCommand");
                 if (player != null)
                 {
-                    if (player.Music)
-                    {
-                        player.Music = false;
-                        playerController.PrintToChat(Localizer["music.off"]);
-                    }
-                    else 
-                    {
-                        player.Music = true;
-                        playerController.PrintToChat(Localizer["music.on"]);
-                    }
                     await statsManager.ToggleSound(player);
                 }
             }
@@ -2893,11 +3164,11 @@ namespace GunGame
                 }
                 Server.NextFrame(() =>
                 {
-                    ChatMenus.OpenMenu(playerController, topMenu);
+                    MenuManager.OpenChatMenu(playerController, topMenu);
                 });
             }
         }
-        [ConsoleCommand("ggreset", "Reset GG stats")]
+        [ConsoleCommand("gg_reset", "Reset GG stats")]
         [CommandHelper(whoCanExecute: CommandUsage.CLIENT_ONLY)]
         [RequiresPermissions("@css/root")]
         public async void OnDBResetCommand(CCSPlayerController? playerController, CommandInfo command)
@@ -2925,54 +3196,50 @@ namespace GunGame
         {
             // just to not confuse top menu
         }
-
-        [ConsoleCommand("ggtest", "Test system work")]
-        public void OnCommand(CCSPlayerController? player, CommandInfo command)
+        [ConsoleCommand("gg_version", "GunGame plugin version")]
+        public void OnGGVersion(CCSPlayerController? player, CommandInfo command)
         {
-            Console.WriteLine($"GG Test command");
-/*            if (GGVariables.Instance.MapStatus.HasFlag(Objectives.RemoveBomb))
+            if (player != null && player.IsValid)
             {
-                Console.WriteLine($"Remove Bomb Objectives set");
+                player.PrintToChat($"GunGame Version: {ModuleVersion}");
+                player.PrintToChat($"Website https://github.com/ssypchenko/cs2-gungame");
             }
-            if (GGVariables.Instance.MapStatus.HasFlag(Objectives.RemoveHostage))
+            else
             {
-                Console.WriteLine($"Remove Hostage Objectives set");
-            }
-*/          
-            var playerEntities = Utilities.GetPlayers();
-            
-            if (playerEntities != null && playerEntities.Count > 0)
-            {
-                Console.WriteLine("Players Online:");
-                foreach (var playerController in playerEntities)
-                {
-                    if (IsValid(playerController) && !playerController.IsBot)
-                    {
-                        Console.WriteLine($"{playerController.PlayerName} index {playerController.Index}");
-                        
-                        if (playerController.PlayerName == "OneMore")
-                        {
-                            var pl = playerManager.GetPlayer(playerController);
-                            if (pl != null)
-                            {
-                                playerController.GiveNamedItem("weapon_taser");
-                                Console.WriteLine($"**********Started");
-                                AddTimer(7.0f, () => {
-                                    GiveExtraTaser(playerController);
-                                    Console.WriteLine($"**********added");
-                                });
-                            }
-                        }
-                    }
-                }
+                Console.WriteLine($"GunGame Version: {ModuleVersion}");
+                Console.WriteLine($"Website https://github.com/ssypchenko/cs2-gungame");
             }
         }
-    }
-    public static class extension
-    {
-        public static IEnumerable<CCSPlayerController> ValidOnly(this IEnumerable<CCSPlayerController> players)
+
+        [ConsoleCommand("gg_restart", "Restart game")]
+        [RequiresPermissions("@css/rcon")]
+        public void OnRestartCommand(CCSPlayerController? playerController, CommandInfo command)
         {
-            return players.Where(p => p.IsValid);
+            Server.ExecuteCommand("sv_cheats 1; endround; sv_cheats 0;");
+            Load(true);
+        }
+
+        [ConsoleCommand("gg_enable", "Enable GunGame")]
+        [RequiresPermissions("@css/rcon")]
+        public void OnEnableCommand(CCSPlayerController? playerController, CommandInfo command)
+        {
+            Config.IsPluginEnabled = true;
+            Server.ExecuteCommand("sv_cheats 1; endround; sv_cheats 0;");
+            Load(true);
+        }
+
+        [ConsoleCommand("gg_disable", "Disable GunGame")]
+        [RequiresPermissions("@css/rcon")]
+        public void OnDisableCommand(CCSPlayerController? playerController, CommandInfo command)
+        {
+            Config.IsPluginEnabled = false;
+            Server.ExecuteCommand("sv_cheats 1; endround; sv_cheats 0;");
+            Load(true);
+        }
+        [ConsoleCommand("gg_test", "Test GunGame")]
+        public void OnTestCommand(CCSPlayerController? playerController, CommandInfo command)
+        {
+            return;
         }
     }
     public class PlayerManager
@@ -2982,63 +3249,33 @@ namespace GunGame
             Plugin = plugin;
         }
         private GunGame Plugin;
+        private readonly object lockObject = new();
         private readonly Dictionary<int, GGPlayer> playerMap = new();
-        private readonly Dictionary<int, GGPlayer> playerMapIndex = new();
         public GGPlayer? CreatePlayerBySlot(int slot)
         {
             if (slot < 0 || slot > Models.Constants.MaxPlayers)
                 return null;
-            if (playerMap.ContainsKey(slot))  // Call from Connect, so delete if was before
+            GGPlayer? player;
+            lock (lockObject)
             {
-                playerMap.Remove(slot);
-            }
-            var newPlayer = new GGPlayer(slot);
-            var playerController = Utilities.GetPlayerFromSlot(slot);
-                
-            if (playerController != null && playerController.IsValid)
-            {
-                newPlayer.UpdatePlayerController(playerController);
-                if (playerMapIndex.ContainsKey((int)playerController.Index))
+                if (!playerMap.TryGetValue(slot, out GGPlayer? pl))
                 {
-                    playerMapIndex.Remove((int)playerController.Index);
+                    pl = new GGPlayer(slot, Plugin);
+                    playerMap.Add(slot, pl);
                 }
-                playerMapIndex.Add((int)playerController.Index, newPlayer);
-                if (Plugin.Config.ShootKnifeBlock)
-                {
-                    Plugin.ForgiveShots((int)playerController.Index);
-                }
+                player = pl;
             }
-            playerMap.Add(slot, newPlayer);
-            return newPlayer;
-        }
-        public GGPlayer? GetOrCreatePlayerBySlot(int slot)
-        {
-            if (slot < 0 || slot > Models.Constants.MaxPlayers)
-                return null;
-            GGPlayer player;
-            if (!playerMap.ContainsKey(slot))
-            {
-                var newPlayer = new GGPlayer(slot);
-                // If the player doesn't exist, create a new one and store it
-                playerMap.Add(slot, newPlayer);
-                player = newPlayer;
-            }
-            else
-            {
-                player = playerMap[slot];
-            }
-            if (player.Index == -1)
-            {
+/*            if (player.Index == -1)
+            {        
                 var playerController = Utilities.GetPlayerFromSlot(slot);
-                    
                 if (playerController != null && playerController.IsValid)
                 {
                     player.UpdatePlayerController(playerController);
-                    playerMapIndex.Add((int)playerController.Index, player);
-                    if (Plugin.Config.ShootKnifeBlock) {
-                        Plugin.ForgiveShots((int)playerController.Index);
-                    }
                 }
+            } */
+            if (Plugin.Config.ShootKnifeBlock)
+            {
+                Plugin.ForgiveShots(slot);
             }
             return player;
         }
@@ -3047,48 +3284,49 @@ namespace GunGame
             if (playerController == null || !playerController.IsValid ) {
                 return null;
             }
-            if (playerMapIndex.ContainsKey((int)playerController.Index))
-            {
-                return playerMapIndex[(int)playerController.Index];
+            if (!playerMap.TryGetValue(playerController.Slot, out GGPlayer? player)) {
+                
+                Plugin.Logger.LogInformation($"[GUNGAME] ************ Error: Call from {module}; Can't find player {playerController.PlayerName} in playerMapIndex. Try to create");
+                player = CreatePlayerBySlot(playerController.Slot);
             }
-            else
+            if (player != null && player.Index == -1)
             {
-                Console.WriteLine($"[GUNGAME] ************ Error: Call from {module}; Can't find player {playerController.PlayerName} in playerMapIndex. Try to create");
-                if (playerController.UserId == null) {
-                    return null;
-                }
-                int slot = (int)(playerController.UserId & 0xFF);
-                return CreatePlayerBySlot(slot);
+                player.UpdatePlayerController(playerController);
             }
+            return player;
         }
         public GGPlayer? FindBySlot (int slot)
         {
-            if (playerMap.ContainsKey(slot)) {
-                return playerMap[slot];
+            if (playerMap.TryGetValue(slot, out GGPlayer? player)) {
+                return player;
             }
-            return null;
+            else
+            {
+                Plugin.Logger.LogInformation($"[GUNGAME] ************ Error: Can't find player slot {slot} in playerMap. Try to create");
+                return CreatePlayerBySlot(slot);
+            }
         }
-        public GGPlayer? FindByIndex (int index)
+        public bool PlayerExists(int slot)
         {
-            if (playerMapIndex.ContainsKey(index)) {
-                return playerMapIndex[index];
-            }
-            return null;
-        } 
+            return playerMap.TryGetValue(slot, out GGPlayer? player);
+        }
         public void ForgetPlayer (int slot)
         {
-            if ( playerMap.ContainsKey(slot)) {
-                int index = playerMap[slot].Index;
-                playerMap.Remove(slot);
-                playerMapIndex.Remove(index);
+            lock (lockObject)
+            {
+                if (playerMap.TryGetValue(slot, out GGPlayer? player)) {
+                    playerMap.Remove(slot);
+                }
             }
         }
     }
     public class GGPlayer
     {    
-        private readonly object lockObject = new object();
-        public GGPlayer(int slot)
+        private readonly object lockObject = new();
+        private readonly GunGame Plugin;
+        public GGPlayer(int slot, GunGame plugin)
         {
+            Plugin = plugin;
             Slot = slot;
             Level = 1;
             PlayerName = "";
@@ -3106,6 +3344,27 @@ namespace GunGame
             PlayerName = playerController.PlayerName;
             SavedSteamID = playerController.SteamID;
             IsBot = playerController.IsBot;
+            if (!IsBot)
+                Plugin.Logger.LogInformation($"{PlayerName} ({Slot}) connected");
+        }
+        public void UpdatePlayerSteamID()
+        {
+            if (SteamIDTimer != null)
+            {
+                SteamIDTimer.Kill();
+                SteamIDTimer = null;
+            }
+            var playerController = Utilities.GetPlayerFromSlot(Slot);
+            if (playerController != null)
+            {
+                if (playerController.AuthorizedSteamID != null)
+                {
+                    SavedSteamID = playerController.AuthorizedSteamID.SteamId64;
+                    return;
+                }
+                Plugin.Logger.LogInformation($"[GunGame] Player: Kick Player {playerController.PlayerName} slot {Slot} because of not authorised");
+                Server.ExecuteCommand($"kickid {Slot} NoSteamId");
+            }            
         }
         public string PlayerName { get; private set; }
         public uint Level { get; private set; } = 1;
@@ -3121,7 +3380,8 @@ namespace GunGame
         public int CurrentLevelPerRoundTriple { get; set;} = 0;
         public bool TeamChange { get; set;} = false;
         public bool TripleEffects { get; set;} = false;
-        public ulong SavedSteamID { get; set;}
+        public ulong SavedSteamID { get; set;} = 0;
+        public CounterStrikeSharp.API.Modules.Timers.Timer? SteamIDTimer = null;
         public int IdAttempts { get; set;} = 0;
         public QAngle? Angles { get; set; }
         public Vector? Origin { get; set; }
@@ -3129,7 +3389,7 @@ namespace GunGame
         public PlayerStates State { get; set;}
         public int PlayerWins { get; set;}
         public int PlayerPlace { get; set;}
-        public bool Music { get; set;} = true;
+        public bool Music { get; set;}
         public void SetLevel( int setLevel)
         {
             if (setLevel > GGVariables.Instance.WeaponOrderCount || setLevel < 1)
@@ -3139,6 +3399,33 @@ namespace GunGame
                 this.Level = (uint)setLevel;
                 LevelWeapon = GGVariables.Instance.weaponsList.FirstOrDefault(w => w.Level == Level)!;
             }
+//            if (!IsBot) Plugin.Logger.LogInformation($"{PlayerName} ({Slot}) - level {Level}");
+        }
+        public void SetSound(bool value)
+        {
+            if (IsBot)
+                return;
+            Music = value;
+//            Plugin.Logger.LogInformation($"{PlayerName} sound set to {(Music ? "on" : "off")}");
+            var playerController = Utilities.GetPlayerFromSlot(Slot);
+            if (playerController != null && playerController.IsValid 
+                && playerController.Pawn != null && playerController.Pawn.Value != null 
+                && playerController.Pawn.Value.LifeState == (byte)LifeState_t.LIFE_ALIVE)
+            {
+                if (Music)
+                {
+                    playerController.PrintToChat(Plugin.Localizer["music.on"]);
+                }
+                else
+                {
+                    playerController.PrintToChat(Plugin.Localizer["music.off"]);
+                }
+            } 
+        }
+        public void SetWins(int value)
+        {
+            PlayerWins = value;
+//            Plugin.Logger.LogInformation($"{PlayerName} wins set to {value}");
         }
         public void UseWeapon(int slot)
         {
@@ -3151,6 +3438,27 @@ namespace GunGame
                 return 0;
             else
                 return playerController.TeamNum;
+        }
+        public void SavedWins(bool success, int problemId)
+        {
+            if (success)
+            {
+                Plugin.Logger.LogInformation($"Winner {PlayerName}, {PlayerWins} total wins");
+            }
+            else
+            {
+                Plugin.Logger.LogError($"Failed to save wins for {PlayerName} slot {Slot} SteamID {SavedSteamID} wins {PlayerWins} problem Id {problemId}");
+            }
+            Plugin.StatsLoadRank();
+        }
+        public void ResetPlayer ()
+        {
+            AfkCount = 0;
+            CurrentKillsPerWeap = 0;
+            CurrentLevelPerRound = 0;
+            CurrentLevelPerRoundTriple = 0;
+            NumberOfNades = 0;
+            SetLevel(1);
         }
     }
 }
