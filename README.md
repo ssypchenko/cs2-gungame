@@ -9,17 +9,12 @@ GunGame challenges players with various weapons, requiring kills with each to pr
 
 ## Commands and Cvars
 
-*Note: Commands and CVars are still in development. At least the following will be available:*
+*Note: CVars are still in development by CounterStrikeSharp.*
 
-- `gungame_enabled` - Displays the GunGame status.
-- `gg_version` - Shows the plugin version.
-- `gg_status` - Displays the current game state.
+Commands available now:
 - `gg_restart` - Restarts the whole game from the beginning.
 - `gg_enable` - Turn on gungame and restart the game.
 - `gg_disable` - Turn off gungame and restart the game.
-- `gg_rebuild` - Rebuilds the top10 rank from the player data information.
-
-Commands available now:
 - `gg_reset` - Reset all gungame stats.
 - `!top` - Show the top winners on the server.
 - `!rank` - Show your current place in stats.
@@ -28,10 +23,9 @@ Commands available now:
 
 ## Requirements
 
-- Linux server (unfortunately, plugin does not work on Windows server yet)
 - Counter-Strike 2
-- Metamod:Source v1275+
-- Counter Strike Share v.142+
+- Metamod:Source v1280+
+- Counter Strike Share v.153+
 
 ## Installation
 
@@ -52,7 +46,7 @@ Special thanks to altex for the original plugin, the Counter Strike Sharp Discor
 
 ## Translations
 
-Available in English and Russian.
+Available in English and Russian. (*The translation has been developed, but it does not work. It needs to be investigated and fixed.*).
 
 ## TODO
 
