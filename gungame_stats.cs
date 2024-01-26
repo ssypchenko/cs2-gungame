@@ -569,7 +569,7 @@ namespace GunGame.Stats
             }
             return wins;
         }
-        public async Task<Dictionary<string, int>> GetTopPlayers(int HandicapTopRank = 21)
+        public async Task<Dictionary<string, int>> GetTopPlayers(int HandicapTopRank = 19)
         {
             var topPlayers = new Dictionary<string, int>();
             string query = @"

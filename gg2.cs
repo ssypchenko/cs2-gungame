@@ -43,7 +43,7 @@ namespace GunGame
             playerManager = new(this);
         }
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.4";
+        public override string ModuleVersion => "v1.0.5";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public bool LogConnections = false;
@@ -264,7 +264,7 @@ namespace GunGame
         }
         private void LoadEventSubscribers()
         {
-            // here future development
+            // future
         }
         private void GG_Startup()
         {
@@ -1488,7 +1488,7 @@ namespace GunGame
                         }
                     }
                 }
-                else if (!weapon.Equals("hegrenade"))
+                else if (!weapon.Equals("hegrenade") && !weapon.Equals("molotov"))
                 {
                     g_Shot[attacker.Slot, victim.Slot] = true;
                 }
@@ -3265,14 +3265,6 @@ namespace GunGame
                 }
                 player = pl;
             }
-/*            if (player.Index == -1)
-            {        
-                var playerController = Utilities.GetPlayerFromSlot(slot);
-                if (playerController != null && playerController.IsValid)
-                {
-                    player.UpdatePlayerController(playerController);
-                }
-            } */
             if (Plugin.Config.ShootKnifeBlock)
             {
                 Plugin.ForgiveShots(slot);
