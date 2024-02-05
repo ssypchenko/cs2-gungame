@@ -19,19 +19,23 @@ Commands available now:
 - `!top` - Show the top winners on the server.
 - `!rank` - Show your current place in stats.
 - `!music` - Turn Off or On all plugin sounds for the player.
+- `!lang ..` - Player can change language of plugin messages. 
+> [!WARNING]  
+> Only works with ISO codes e.g.: `!lang en` or `!lang lv` You need the corresponding localisation file with the same name (en.json and ru.json are included). If you add GeoLite2-Country.mmdb to cfg folder, plugin will detect the player language based on his IP address. 
 
 
 ## Requirements
 
 - Counter-Strike 2
 - Metamod:Source v1280+
-- Counter Strike Share v.153+
+- Counter Strike Share v.159+
 
 ## Installation
 
 1. Install Metamod:Source and Counter Strike Sharp.
 2. Copy DLLs to `csgo/addons/counterstrikesharp/plugins/GG2`.
 3. Place config files in `csgo/cfg/gungame`.
+4. Place GeoLite2-Country.mmdb if you have it to `csgo/cfg`
 
 *Config Files:*
 
@@ -42,11 +46,15 @@ Commands available now:
 
 ## Credits
 
-Special thanks to altex for the original plugin, the Counter Strike Sharp Discord community, and Chat-GPT for assistance, I hope it will remember how polite I was.
+Special thanks to altex for the original plugin, aproxje for the ideas from Language Manager Plugin, the Counter Strike Sharp Discord community, and Chat-GPT for assistance, I hope it will remember how polite I was.
 
 ## Translations
 
-Available in English and Russian. (*The translation has been developed, but it does not work. It needs to be investigated and fixed.*).
+Available in English and Russian.
+
+## Upgrade
+
+Please read the release notes carefully for upgrade instructions.
 
 ## TODO
 
@@ -71,5 +79,9 @@ A: Use `+game_type 0 +game_mode 0`.
 
 **Q: What if something isn't working?**
 A: Feel free to ask on the Counter Strike Sharp Discord. Assistance will be provided, though fixes are not guaranteed.
+
+**Q: Where can I find geo database for ip addresses - GeoLite2-Country.mmdb?**
+A: You can get it from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+Or from release
 
 *This README is a work in progress and will be updated as the plugin develops.*
