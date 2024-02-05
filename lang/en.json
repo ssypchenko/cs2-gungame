@@ -15,8 +15,8 @@
   "level.difference": "You can not steal level from {0}, your levels difference is more then {1}",
   "level.stolen": "{0} {red}has stolen a level{default} from {1}",
   "player.leveled": "{0} has leveled {1} times",
-  "friendlyfire.on": "{red}Friendly Fire has been enabled",
-  "friendlyfire.off": "{green}Friendly Fire has been disabled",
+  "friendlyfire.on": "{red}Friendly Fire is ON",
+  "friendlyfire.off": "{green}Friendly Fire is OFF",
   "suiside.levels": "{green}{0}{default} has lost {1} levels by suicide",
   "suiside.alevel": "{green}{0}{default} has lost level by suicide",
   "leading.onweapon": "{green}{0}{default} is leading on level weapon {1}",
@@ -40,5 +40,9 @@
   "player.rank": "Your rank - {olive}{0}",
   "set.sound": " {olive}To toggle (turn off/on) extra sounds use '!music' in chat",
   "top.list": " {lightpurple} '!top' in chat for leaders list",
-  "your.rank": " {blue} Your rank - '!rank' in chat"
+  "your.rank": " {blue} Your rank - '!rank' in chat",
+  "nomore.knives": "2 steals in the row only. Than you need level up with weapon",
+  "additionalfrags.left": "{0} extra frags left",
+  "additionalfrag.have": "You have {0} extra frag because you was Winner!!!",
+  "additionalfrags.have": "You have {0} extra frags because you was Winner!!!"
 } 

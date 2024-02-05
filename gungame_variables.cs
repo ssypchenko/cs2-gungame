@@ -20,6 +20,7 @@ namespace GunGame.Variables
                 return _instance;
             }
         }
+        public string ServerLanguageCode = "en";
         public ConVar? Mp_friendlyfire { get; set; }
         public Dictionary<int, int> CustomKillsPerLevel = new();
         public bool StatsEnabled { get; set; } = false;
@@ -47,7 +48,7 @@ namespace GunGame.Variables
             "top.list",
             "your.rank",
         };
-
+        public string LooserName = "";
         public int InfoMessageIndex = 0;
 //        public int g_WeaponAmmoTypeHegrenade { get; set; }
 //        public int g_WeaponAmmoTypeFlashbang { get; set; }

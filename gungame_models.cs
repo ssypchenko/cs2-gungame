@@ -26,6 +26,8 @@ namespace GunGame.Models
         public string DatabaseType { get; set; } = "";
         [JsonPropertyName("DatabaseFilePath")]
         public string DatabaseFilePath { get; set; } = "";
+        [JsonPropertyName("GeoDatabaseFilePath")]
+        public string GeoDatabaseFilePath { get; set; } = "";
         [JsonPropertyName("DatabaseHost")]
         public string DatabaseHost { get; set; } = "";
         [JsonPropertyName("DatabasePort")]
@@ -136,14 +138,49 @@ namespace GunGame.Models
         public bool Result { get; set; }
         public int Killer { get; }
         public int Victim { get; }
-        public string Weapon { get; set; }
-        public bool TeamKill { get; set; }
+        public string Weapon { get; }
+        public bool TeamKill { get; }
         public KillEventArgs(int killer, int victim, string weapon, bool teamkill)
         {
             Killer = killer;
             Victim = victim;
             Weapon = weapon;
             TeamKill = teamkill;
+            Result = true;
+        }
+    }
+    public class LevelChangeEventArgs : EventArgs
+    {
+        public int Killer { get; }
+        public int Level { get; }
+        public int Difference { get; }
+        public bool KnifeSteal { get; }
+        public bool LastLevel { get; }
+        public bool Knife { get; }
+        public int Victim { get; }
+        public bool Result { get; set; }
+        public LevelChangeEventArgs(int killer, int level, int difference, bool knifesteal, bool lastlevel, bool knife, int victim)
+        {
+            Killer = killer;
+            Level = level;
+            Difference = difference;
+            KnifeSteal = knifesteal;
+            LastLevel = lastlevel;
+            Knife = knife;
+            Victim = victim;
+            Result = true;
+        }
+    }
+    public class PointChangeEventArgs : EventArgs
+    {
+        public int Killer { get; }
+        public int Kills { get; }
+        public bool Result { get; set; }
+        public PointChangeEventArgs(int killer, int kills)
+        {
+            Killer = killer;
+            Kills = kills;
+            Result = true;
         }
     }
     public enum GGSounds

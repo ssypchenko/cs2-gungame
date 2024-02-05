@@ -1,5 +1,7 @@
 ﻿using System.Data;
+using System.Globalization;
 using System.Text;
+using MaxMind.GeoIP2;
 using Microsoft.Data.Sqlite;
 using Dapper;
 using CounterStrikeSharp.API;
@@ -119,6 +121,7 @@ namespace GunGame.Stats
                         name TEXT NOT NULL DEFAULT '0',
                         timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         sound INTEGER NOT NULL DEFAULT 1,
+                        countrycode TEXT,
                         UNIQUE (authid)
                     );");
                     _sqliteConn.Close();
@@ -132,6 +135,7 @@ namespace GunGame.Stats
                         `name` VARCHAR(128) NOT NULL DEFAULT '0',
                         `timestamp` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         `sound` INT NOT NULL DEFAULT '1',
+                        `countrycode` TEXT,
                         PRIMARY KEY (`id`),
                         UNIQUE KEY `authid_unique` (`authid`)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;");
@@ -147,9 +151,7 @@ namespace GunGame.Stats
         public async Task SavePlayerWin(GGPlayer player)
 		{
             if (player == null) return;
-
 			string safePlayerName = System.Net.WebUtility.HtmlEncode(player.PlayerName);
-            DateTime now = DateTime.Now;
             bool playerExists = false;
             string query = "SELECT `wins`, `sound` FROM `gungame_playerdata` WHERE `authid` = @authid;";
             int wins = 0;
@@ -175,7 +177,6 @@ namespace GunGame.Stats
                         wins = reader.GetInt32("wins");
                         playerExists = true;
                     }
-
                     if (playerExists)
                     {
                         player.SetWins(++wins);
@@ -184,7 +185,7 @@ namespace GunGame.Stats
                     {
                         player.SetWins(1);
                     }
-                    
+
                     query = "INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) " +
                     "VALUES (@wins, @SavedSteamID, @PlayerName, CURRENT_TIMESTAMP) " +
                     "ON CONFLICT(`authid`) " +
@@ -195,9 +196,6 @@ namespace GunGame.Stats
                     command.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
                     command.Parameters.AddWithValue("@PlayerName", safePlayerName);
                     await command.ExecuteNonQueryAsync();
-                    Server.NextFrame(() => {
-                        player.SavedWins(true, 0);
-                    });
                 }
                 catch (Exception ex)
                 {
@@ -210,6 +208,7 @@ namespace GunGame.Stats
             }
 			else if (DatabaseType == DatabaseType.MySQL)
             {
+                DateTime now = DateTime.Now;
                 try
                 {
                     await _mysqlConn.OpenAsync();
@@ -244,9 +243,6 @@ namespace GunGame.Stats
                         command.Parameters.AddWithValue("@PlayerName", safePlayerName);
                         command.Parameters.AddWithValue("@now", now);
                         await command.ExecuteNonQueryAsync();
-                        Server.NextFrame(() => {
-                            player.SavedWins(true, 0);
-                        });
                     }
                 }
                 catch (Exception ex)
@@ -258,10 +254,15 @@ namespace GunGame.Stats
                     await _mysqlConn.CloseAsync();
                 }
             }
+            Console.WriteLine($"[GunGame_Stats] Saved player wins for {player.PlayerName} - {player.PlayerWins}");
+            Server.NextFrame(() => {
+                Plugin.Logger.LogInformation($"[GunGame_Stats] Saving player wins for {player.PlayerName}");
+                player.SavedWins(true, 0);
+            });
 		}
         public async Task GetPlayerWins(GGPlayer player)
         {
-//            Plugin.Logger.LogInformation($"[GunGame_Stats] Getting player wins for {player.PlayerName}");
+//             Plugin.Logger.LogInformation($"[GunGame_Stats] Getting player wins for {player.PlayerName}");
             int attempts = 0;
             while (SavingPlayer && attempts < 20)
             {
@@ -283,12 +284,53 @@ namespace GunGame.Stats
                     return;
                 }
             }
+            string ipcountrycode = "";
+            if (player.IP.Length > 0)
+            {
+                string dbFilePath = Server.GameDirectory + config.GeoDatabaseFilePath;
+                if (File.Exists(dbFilePath))
+                {
+                    using var reader = new DatabaseReader(dbFilePath);
+                    if (reader != null)
+                    {
+                        try
+                        {
+                            var response = reader.Country(player.IP);
+                            if (response != null && response.Country != null && response.Country.IsoCode != null)
+                            {
+                                ipcountrycode = response.Country.IsoCode.ToLower();
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[GunGame_Stats]***********: No response from GeoDB for ip: {player.IP}");
+                                Server.NextFrame(() =>
+                                {
+                                    Plugin.Logger.LogInformation($"[GunGame_Stats]******* GetPlayerWins GetPlayerISOCode:******* No response from GeoDB for ip: {player.IP}");
+                                });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.Message);
+                            Server.NextFrame(() =>
+                            {
+                                Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins GetPlayerISOCode: An error occurred: {ex.Message}");
+                            });
+                        }
+                    }
+                }
+            }
+            if (ipcountrycode.Length == 0)
+            {
+                ipcountrycode = GGVariables.Instance.ServerLanguageCode;
+            }
             SavingPlayer = true;
             UnsuccessfulSave = false;
             int wins = 0;
             int sound = 1;
+            string countrycode = "";
 
-            string query = "SELECT `wins`, `sound` FROM `gungame_playerdata` WHERE `authid` = @authid;";
+            string query = "SELECT `wins`, `sound`, `countrycode` FROM `gungame_playerdata` WHERE `authid` = @authid;";
 
             bool playerExists = false;
             if (DatabaseType == DatabaseType.SQLite)
@@ -303,19 +345,8 @@ namespace GunGame.Stats
                     {
                         wins = reader.GetInt32("wins");
                         sound = reader.GetInt32("sound");
+                        countrycode = reader.GetString("countrycode");
                         playerExists = true;
-                    }
-                    string insertQuery = "INSERT INTO `gungame_playerdata` (`authid`, `name`, `timestamp`) VALUES (@authid, @name, CURRENT_TIMESTAMP);";
-                    string updateQuery = "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = CURRENT_TIMESTAMP WHERE `authid` = @authid;";
-                    string sql = playerExists ? updateQuery : insertQuery;
-                    command = new SqliteCommand(sql, _sqliteConn);
-                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                    command.Parameters.AddWithValue("@name", player.PlayerName);
-
-                    int rowsAffected = await command.ExecuteNonQueryAsync();
-                    if (rowsAffected != 1)
-                    {
-                        Console.WriteLine($"[GunGame_Stats - FATAL] ******* GetPlayerWins: Error with Database update");
                     }
                 }
                 catch (Exception ex)
@@ -323,13 +354,8 @@ namespace GunGame.Stats
                     SavingPlayer = false;
                     Server.NextFrame(() =>
                     {
-                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins: An error occurred: {ex.Message}");
+                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins(1): An error occurred: {ex.Message}");
                     });
-                    
-                }
-                finally
-                {
-                    await _sqliteConn.CloseAsync();
                 }
             }
             else if (DatabaseType == DatabaseType.MySQL)
@@ -347,23 +373,9 @@ namespace GunGame.Stats
                             {
                                 wins = reader.GetInt32("wins");
                                 sound = reader.GetInt32("sound");
+                                countrycode = reader.GetString("countrycode");
                                 playerExists = true;
                             }
-                        }
-                    }
-
-                    string sql = playerExists
-                        ? "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = NOW() WHERE `authid` = @authid"
-                        : "INSERT INTO `gungame_playerdata` (`authid`, `name`, `timestamp`) VALUES (@authid, @name, NOW())";
-
-                    using (var command = new MySqlCommand(sql, _mysqlConn))
-                    {
-                        command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                        command.Parameters.AddWithValue("@name", player.PlayerName);
-                        int rowsAffected = await command.ExecuteNonQueryAsync();
-                        if (rowsAffected != 1)
-                        {
-                            Console.WriteLine($"[GunGame_Stats - FATAL] ****** GetPlayerWins: Error with Database update");
                         }
                     }
                 }
@@ -372,7 +384,96 @@ namespace GunGame.Stats
                     SavingPlayer = false;
                     Server.NextFrame(() =>
                     {
-                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins: An error occurred: {ex.Message}");
+                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins(1): An error occurred: {ex.Message}");
+                    });
+                }
+            }
+                        
+            if (DatabaseType == DatabaseType.SQLite)
+            {
+                try
+                {        
+                    string sql;
+                    if (playerExists)
+                    {
+                        if (countrycode.Length == 0)
+                        {
+                            sql = "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = CURRENT_TIMESTAMP, `countrycode` = @countrycode WHERE `authid` = @authid;";
+                        }
+                        else
+                        {
+                            sql = "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = CURRENT_TIMESTAMP WHERE `authid` = @authid;";
+                        }
+                    }
+                    else
+                    {
+                        sql = "INSERT INTO `gungame_playerdata` (`authid`, `name`, `timestamp`, `countrycode`) VALUES (@authid, @name, CURRENT_TIMESTAMP, @countrycode);";
+                    }
+                    
+                    var command = new SqliteCommand(sql, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                    command.Parameters.AddWithValue("@name", player.PlayerName);
+                    command.Parameters.AddWithValue("@countrycode", ipcountrycode);
+
+                    int rowsAffected = await command.ExecuteNonQueryAsync();
+                    if (rowsAffected != 1)
+                    {
+                        Console.WriteLine($"[GunGame_Stats - FATAL] ******* GetPlayerWins(2): Error with Database update");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SavingPlayer = false;
+                    Server.NextFrame(() =>
+                    {
+                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins(2): An error occurred: {ex.Message}");
+                    });
+                    
+                }
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
+            }
+            else if (DatabaseType == DatabaseType.MySQL)
+            {
+                try
+                {
+                    string sql;
+                    if (playerExists)
+                    {
+                        if (countrycode.Length == 0)
+                        {
+                            sql = "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = NOW(), `countrycode` = @countrycode WHERE `authid` = @authid";
+                        }
+                        else
+                        {
+                            sql = "UPDATE `gungame_playerdata` SET `name` = @name, `timestamp` = NOW() WHERE `authid` = @authid";
+                        }
+                    }
+                    else
+                    {
+                        sql = "INSERT INTO `gungame_playerdata` (`authid`, `name`, `timestamp`, `countrycode`) VALUES (@authid, @name, NOW(), @countrycode)";
+                    }
+
+                    using (var command = new MySqlCommand(sql, _mysqlConn))
+                    {
+                        command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                        command.Parameters.AddWithValue("@name", player.PlayerName);
+                        command.Parameters.AddWithValue("@countrycode", ipcountrycode);
+                        int rowsAffected = await command.ExecuteNonQueryAsync();
+                        if (rowsAffected != 1)
+                        {
+                            Console.WriteLine($"[GunGame_Stats - FATAL] ****** GetPlayerWins(2): Error with Database update");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SavingPlayer = false;
+                    Server.NextFrame(() =>
+                    {
+                        Plugin.Logger.LogInformation($"[GunGame_Stats - FATAL]******* GetPlayerWins(2): An error occurred: {ex.Message}");
                     });
                 }
                 finally
@@ -381,12 +482,72 @@ namespace GunGame.Stats
                 }
             }
             SavingPlayer = false;
+            if (countrycode.Length == 0)
+            {
+                countrycode = ipcountrycode;
+            }
+            var tempCulture = new CultureInfo(countrycode);
+            
             Server.NextFrame(() =>
             {
                 player.PlayerWins = wins;
                 player.Music = sound == 1;
-//                Plugin.Logger.LogInformation($"[GunGame_Stats]******* GetPlayerWins: {player.PlayerName} wins {player.PlayerWins}, sound {sound}");
+                player.Culture = tempCulture;
+                player.SetLanguage();
+                Plugin.Logger.LogInformation($"[GunGame_Stats]******* GetPlayerWins: {player.PlayerName} wins {player.PlayerWins}, sound {sound}");
             });
+        }
+        public async Task UpdateLanguage(GGPlayer player)
+        {
+            string updateQuery = "UPDATE `gungame_playerdata` SET `countrycode` = @countrycode WHERE `authid` = @authid;";
+            if (DatabaseType == DatabaseType.SQLite)
+            {
+                try
+                {
+                    await _sqliteConn.OpenAsync();
+                    
+                    var command = new SqliteCommand(updateQuery, _sqliteConn);
+                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                    command.Parameters.AddWithValue("@countrycode", player.Culture.Name);
+                
+                    int rowsAffected = await command.ExecuteNonQueryAsync();
+                    if (rowsAffected != 1)
+                    {
+                        Console.WriteLine($"[GunGame_Stats - FATAL] UpdateLanguage ********* Error with Database update");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GunGame_Stats - FATAL] UpdateLanguage ******* An error occurred: {ex.Message}");
+                }
+                finally
+                {
+                    await _sqliteConn.CloseAsync();
+                }
+            }
+            else if (DatabaseType == DatabaseType.MySQL)
+            {
+                try
+                {
+                    await _mysqlConn.OpenAsync();
+
+                    using (var command = new MySqlCommand(updateQuery, _mysqlConn))
+                    {
+                        command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                        command.Parameters.AddWithValue("@countrycode", player.Culture.Name);
+                        await command.ExecuteNonQueryAsync();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[GunGame_Stats - FATAL] ToggleSound ******* An error occurred: {ex.Message}");
+                }
+                finally
+                {
+                    await _mysqlConn.CloseAsync();
+                }
+            }
+
         }
         public async Task<int> GetPlayerRank(string authid)
         {
