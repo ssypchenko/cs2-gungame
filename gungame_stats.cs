@@ -42,8 +42,8 @@ namespace GunGame.Stats
             }
             else
             {
-                Console.WriteLine($"[GunGame_Stats] ******* StatsManager: Failed to load database configuration from");
-                Plugin.Logger.LogInformation($"[GunGame_Stats] ******* StatsManager: Failed to load database configuration from");
+                Console.WriteLine($"[GunGame_Stats] ******* StatsManager: Failed to load database configuration");
+                Plugin.Logger.LogInformation($"[GunGame_Stats] ******* StatsManager: Failed to load database configuration");
             } 
 		}
         private void InitializeDatabaseConnection()

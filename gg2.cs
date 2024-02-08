@@ -52,7 +52,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.6";
+        public override string ModuleVersion => "v1.0.7";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public bool LogConnections = false;
@@ -91,7 +91,12 @@ namespace GunGame
                 Console.WriteLine($"[GunGame] ******* LoadDBConfig: Error reading or deserializing gungame-db.json file: {ex.Message}. Continue without GunGame statistics");
                 return;
             }
-
+            if (dbSettings == null || dbSettings.StatsDB == null)
+            {
+                Console.WriteLine($"[GunGame - FATAL] ****** LoadDBConfig: Error reading or deserializing gungame-db.json file. Continue without GunGame statistics");
+                Logger.LogError($"[GunGame - FATAL] ****** LoadDBConfig: Error reading or deserializing gungame-db.json file. Continue without GunGame statistics");
+                return;
+            }
             DBConfig statsDBConfig = dbSettings.StatsDB;
             DBConfig onlineDBConfig = dbSettings.OnlineDB;
             statsManager = new(statsDBConfig, this);
@@ -299,7 +304,7 @@ namespace GunGame
         }
         private void LoadEventSubscribers()
         {
-            //Events Subscribers will be here
+            //
         }
         private void GG_Startup()
         {
@@ -782,7 +787,7 @@ namespace GunGame
             }
 
             UpdatePlayerScoreLevel(player.Slot);
-            _ = statsManager.GetPlayerWins(player);
+            _ = statsManager?.GetPlayerWins(player);
         }
         private void InitVariables ()
         {
@@ -3069,11 +3074,6 @@ namespace GunGame
                     looserSlot = CounterpartController.Slot;
                 }
                 RaiseWinnerEvent(winnerSlot, looserSlot);
-/*                Call_StartForward(FwdWinner);
-                Call_PushCell(client);
-                Call_PushString(WeaponOrderName[Level - 1]);
-                Call_PushCell(victim);
-                Call_Finish(); */
 
                 if (!(Config.DontAddWinsOnBot && CounterpartController != null && CounterpartController.IsValid && CounterpartController.IsBot))
                 {
@@ -3101,7 +3101,6 @@ namespace GunGame
                     var sv_full_alltalk = ConVar.Find("sv_full_alltalk");
                     sv_full_alltalk?.SetValue(true);
                 }
-//                player.SetLevel(oldLevel);
                 return oldLevel;
             }
 
@@ -3158,7 +3157,7 @@ namespace GunGame
                 Logger.LogError($"{player.PlayerName} slot {player.Slot} win, but his SteamID is 0, so data can't be saved");
                 return;
             }
-            _ = statsManager.SavePlayerWin(player);
+            _ = statsManager?.SavePlayerWin(player);
         }
         public void ForgiveShots(int client)
         {
@@ -3290,6 +3289,11 @@ namespace GunGame
         public async void StatsLoadRank()
         {
 //            StatsSQLManager _statsManager = new(dbConnectionString);
+            if (statsManager == null)
+            {
+                // Handle the case where statsManager is null (maybe log an error, throw an exception, or handle it appropriately)
+                return;
+            }
 		    int TotalWinners = await statsManager.GetNumberOfWinners();
             if (Config.HandicapTopRank == 0)
             {
@@ -3314,7 +3318,7 @@ namespace GunGame
         }
         private static bool IsValid(CCSPlayerController? player)
         {
-            if (player == null || !player.IsValid
+            if (player == null || !player.IsValid || player.Connected != PlayerConnectedState.PlayerConnected
             || player.PlayerPawn == null || !player.PlayerPawn.IsValid)
             {
                 return false;
@@ -3436,7 +3440,14 @@ namespace GunGame
                 var player = playerManager.GetPlayer(playerController, "OnMusicCommand");
                 if (player != null)
                 {
-                    await statsManager.ToggleSound(player);
+                    if (statsManager != null)
+                    {
+                        await statsManager.ToggleSound(player);
+                    }
+                    else
+                    {
+                        command.ReplyToCommand(player.Translate("database.error"));
+                    }
                 }
             }
         }
@@ -3445,7 +3456,15 @@ namespace GunGame
         {
             if (playerController != null && playerController.IsValid)
             {   
-//                StatsSQLManager _statsManager = new(dbConnectionString);
+                if (statsManager == null)
+                {
+                    var player = playerManager.GetPlayer(playerController, "OnTopCommand");
+                    if (player != null)
+                    {
+                        command.ReplyToCommand(player.Translate("database.error"));
+                    }
+                    return;
+                }
                 Dictionary<string,int> TopPlayers = await statsManager.GetTopPlayers(Config.HandicapTopRank);
                 if (TopPlayers.Count == 0)
                 {
@@ -3471,6 +3490,15 @@ namespace GunGame
         [RequiresPermissions("@css/root")]
         public async void OnDBResetCommand(CCSPlayerController? playerController, CommandInfo command)
         {
+            if (statsManager == null)
+            {
+                var player = playerManager.GetPlayer(playerController, "OnDBResetCommand");
+                if (player != null)
+                {
+                    command.ReplyToCommand(player.Translate("database.error"));
+                }
+                return;
+            }
             await statsManager.ResetStats();
     
             if (playerController != null && playerController.IsValid)
@@ -3483,6 +3511,11 @@ namespace GunGame
         {
             if (playerController != null && playerController.IsValid)
             {  
+                if (statsManager == null)
+                {
+                    command.ReplyToCommand(Localizer["database.error"]);
+                    return;
+                }
                 int rank = await statsManager.GetPlayerRank(playerController.SteamID.ToString());
                 Server.NextFrame(() =>
                 {
@@ -3776,7 +3809,7 @@ namespace GunGame
         {
             Culture = new CultureInfo(isoCode);
             SetLanguage();
-            _ = Plugin.statsManager.UpdateLanguage(this);
+            _ = Plugin.statsManager?.UpdateLanguage(this);
         }
         public string Translate(string token_to_localize)
         {
