@@ -38,6 +38,7 @@ using GunGame.Online;
 using System.Security.Principal;
 using System.Net;
 using System.Runtime.Intrinsics.X86;
+using Serilog;
 
 namespace GunGame
 {
@@ -52,7 +53,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.7";
+        public override string ModuleVersion => "v1.0.8";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public bool LogConnections = false;
@@ -148,7 +149,28 @@ namespace GunGame
                 var cnfg = System.Text.Json.JsonSerializer.Deserialize<GGConfig>(jsonString);
                 if (cnfg != null)
                 {
+                    bool updateRequired = false;
+                    foreach (var property in typeof(GGConfig).GetProperties())
+                    {
+                        var loadedValue = property.GetValue(cnfg);
+                        var defaultValue = property.GetValue(Config);
+
+                        if (loadedValue == null)
+                        {
+                            property.SetValue(cnfg, defaultValue);
+                            updateRequired = true;
+                        }
+                    }
+
+                    if (updateRequired)
+                    {
+                        var updatedJsonContent = System.Text.Json.JsonSerializer.Serialize(cnfg, new JsonSerializerOptions { WriteIndented = true });
+                        File.WriteAllText(configPath, updatedJsonContent);
+                        Logger.LogInformation("[GunGame] Config updated due to missing or obsolete keys.");
+                    }
                     Config = cnfg;
+                    GGVariables.Instance.WeaponsSkipFastSwitch = Config.FastSwitchSkipWeapons.Split(',')
+                        .Select(weapon => $"weapon_{weapon.Trim()}").ToList();
                     return true;
                 }
                 else
@@ -664,10 +686,12 @@ namespace GunGame
                 }
                 if ( GGVariables.Instance.CurrentLeader.Slot == slot )
                 {
-                    RecalculateLeader(slot, (int)player.Level, 0);
+                    int playerLevel = (int)player.Level;
+                    player.SetLevel(0);
+                    RecalculateLeader(slot, playerLevel, 0);
                     if ( GGVariables.Instance.CurrentLeader.Slot == slot )
                     {
-                        GGVariables.Instance.CurrentLeader.Slot = -1;
+                        GGVariables.Instance.CurrentLeader.SetLeader(-1, 0);
                     }
                 }
                 if ( Config.AutoFriendlyFire && player.State.HasFlag(PlayerStates.GrenadeLevel) )
@@ -793,8 +817,7 @@ namespace GunGame
         {
             GGVariables.Instance.Tcount = 0;
             GGVariables.Instance.CTcount = 0;
-            GGVariables.Instance.CurrentLeader.Slot = -1;
-            GGVariables.Instance.CurrentLeader.Level = 0;
+            GGVariables.Instance.CurrentLeader.SetLeader(-1, 0);
 
             GGVariables.Instance.MapStatus = 0;
             GGVariables.Instance.HostageEntInfo = 0;
@@ -884,6 +907,25 @@ namespace GunGame
                     }
                 }
             }
+            AddTimer(2.0f, () => {
+                var entities = Utilities.FindAllEntitiesByDesignerName<CCSWeaponBaseGun>("weapon_");
+                foreach (var entity in entities)
+                {
+                    if (!entity.IsValid)
+                    {
+                        continue;
+                    }
+                    if (entity.State != CSWeaponState_t.WEAPON_NOT_CARRIED)
+                    {
+                        continue;
+                    }
+                    if (entity.DesignerName.StartsWith("weapon_") == false)
+                    {
+                        continue;
+                    }
+                    entity.Remove();
+                }
+            });
         }
 /**************  Events **********************************************************/
 /**************  Events **********************************************************/
@@ -1791,7 +1833,7 @@ namespace GunGame
                 AddTimer(1.0f, RemoveHostages);
             } */
 
-            PlaySoundForLeaderLevel();
+//            PlaySoundForLeaderLevel();
 
             // Disable warmup
 /*            if ( Config.WarmupEnabled && GGVariables.Instance.DisableWarmupOnRoundEnd )
@@ -2121,17 +2163,20 @@ namespace GunGame
                 // LEVEL WEAPON PRIMARY/SECONDARY
                 /* Give new weapon */
                 playerController.GiveNamedItem(player.LevelWeapon.FullName);
-                var weapon = playerController.PlayerPawn?.Value?.WeaponServices?.ActiveWeapon?.Value;
-                if (weapon != null && weapon.IsValid)
+                if (Config.FastSwitchOnLevelUp && !GGVariables.Instance.WeaponsSkipFastSwitch.Contains(player.LevelWeapon.FullName))
                 {
-                    var wep = new CCSWeaponBase(weapon.Handle);
-
-                    if (wep != null && wep.IsValid)
+                    var weapon = playerController.PlayerPawn?.Value?.WeaponServices?.ActiveWeapon?.Value;
+                    if (weapon != null && weapon.IsValid)
                     {
-                        Server.NextFrame(() =>
+                        var wep = new CCSWeaponBase(weapon.Handle);
+
+                        if (wep != null && wep.IsValid)
                         {
-                            wep.NextPrimaryAttackTick = Server.TickCount + 1;
-                        });
+                            Server.NextFrame(() =>
+                            {
+                                wep.NextPrimaryAttackTick = Server.TickCount + 1;
+                            });
+                        }
                     }
                 }
             }
@@ -2304,6 +2349,8 @@ namespace GunGame
             && (player.Connected == PlayerConnectedState.PlayerConnected) && (player.TeamNum > 1) && !player.IsHLTV)
             {
                 player.PlayerPawn.Value.MoveType = MoveType_t.MOVETYPE_NONE;
+                Schema.SetSchemaValue(player.PlayerPawn.Value.Handle, "CBaseEntity", "m_nActualMoveType", 0);
+                Utilities.SetStateChanged(player.PlayerPawn.Value, "CBaseEntity", "m_MoveType");
                 player.RemoveWeapons();
                 player.GiveNamedItem("weapon_knife");
             } 
@@ -2420,19 +2467,25 @@ namespace GunGame
                 }
             }
         }
-        public void PlaySoundForLeaderLevel()
+        public void PlaySoundForLeaderLevel(int slot = -1)
         {
-            if (GGVariables.Instance.CurrentLeader == null ) {
+            if (slot < 0 ) {
                 return;
             }
-            Weapon? wep = GGVariables.Instance.weaponsList.FirstOrDefault(w => w.Level == GGVariables.Instance.CurrentLeader.Level);
+            var player = playerManager.FindBySlot(slot);
+            if (player == null)
+            {
+                Logger.LogError($"[GunGame] ******* PlaySoundForLeaderLevel: Can't find player from slot {slot}");
+                return;
+            }
+            Weapon? wep = GGVariables.Instance.weaponsList.FirstOrDefault(w => w.Level == player.Level);
             if (wep != null && wep.LevelIndex == SpecialWeapon.HegrenadeLevelIndex)
             {
                 PlaySoundDelayed(1.0f, null!, Config.NadeInfoSound);
                 return;
             }
             if (wep != null &&  wep.LevelIndex == SpecialWeapon.KnifeLevelIndex) {
-                PlaySoundDelayed(1.0f, null!, Config.KnifeInfoSound);
+                PlaySoundDelayed(2.0f, null!, Config.KnifeInfoSound);
                 return;
             }
         }
@@ -2534,10 +2587,18 @@ namespace GunGame
                 if ( slot == GGVariables.Instance.CurrentLeader.Slot )
                 {
                     // was the leader
-                    GGVariables.Instance.CurrentLeader.Slot = FindLeader();
-                    if ( GGVariables.Instance.CurrentLeader.Slot != slot )
+                    var newLeader = playerManager.FindLeader();
+                    if ( newLeader != null )
                     {
-                        PlaySoundForLeaderLevel();
+                        GGVariables.Instance.CurrentLeader.SetLeader(newLeader.Slot, (int)newLeader.Level);
+                        if ( newLeader.Slot != slot )
+                        {
+                            PlaySoundForLeaderLevel(newLeader.Slot);
+                        }
+                    }
+                    else
+                    {
+                        GGVariables.Instance.CurrentLeader.SetLeader(-1, 0);
                     }
                     return;
                 }
@@ -2545,60 +2606,28 @@ namespace GunGame
             }       
             if (GGVariables.Instance.CurrentLeader.Slot < 0)  // newLevel > oldLevel
             {
-                GGVariables.Instance.CurrentLeader.Slot = slot;
-                GGVariables.Instance.CurrentLeader.Level = (uint) newLevel;
-                PlaySoundForLeaderLevel();
+                GGVariables.Instance.CurrentLeader.SetLeader(slot, newLevel);
+                PlaySoundForLeaderLevel(slot);
                 return;
             }
             if ( GGVariables.Instance.CurrentLeader.Slot == slot ) // still leading
             {
-                PlaySoundForLeaderLevel();
+                PlaySoundForLeaderLevel(slot);
                 return;
             }
-            if ( newLevel < GGVariables.Instance.CurrentLeader.Level ) // CurrentLeader != client
+            if ( newLevel <= GGVariables.Instance.CurrentLeader.Level ) // CurrentLeader != client
             {
                 // not leading
                 return;
             }
             if ( newLevel > GGVariables.Instance.CurrentLeader.Level )
             {
-                GGVariables.Instance.CurrentLeader.Slot = slot;
-                GGVariables.Instance.CurrentLeader.Level = (uint) newLevel;
-                PlaySoundForLeaderLevel(); // start leading
+                GGVariables.Instance.CurrentLeader.SetLeader(slot, newLevel);
+                PlaySoundForLeaderLevel(slot); // start leading
                 return;
             }
             // new level == leader level // tied to the lead
-            PlaySoundForLeaderLevel();
-        }
-        private int FindLeader()
-        {
-            int leaderId = -1;
-            int leaderLevel = 0;
-            int currentLevel;
-            var playerEntities = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
-            if (playerEntities != null && playerEntities.Any())
-            {
-                foreach (var playerController in playerEntities)
-                {
-                    if (playerController != null && playerController.IsValid)
-                    {
-                        var player = playerManager.GetPlayer(playerController);
-
-                        if (player == null)
-                        {
-                            continue;
-                        }
-                        currentLevel = (int) player.Level;
-
-                        if ( currentLevel > leaderLevel )
-                        {
-                            leaderLevel = currentLevel;
-                            leaderId = player.Slot;
-                        }
-                    }
-                }
-            }
-            return leaderId;
+            PlaySoundForLeaderLevel(slot);
         }
         private static void FindMapObjective()
         {
@@ -2908,7 +2937,7 @@ namespace GunGame
             if ( GGVariables.Instance.CurrentLeader.Slot == player.Slot )
             {
                 // say leading on level X
-                if ( Config.ShowLeaderWeapon && player.LevelWeapon != null) 
+                if ( Config.ShowLeaderWeapon && player.LevelWeapon.Index > 0) 
                 {
 //                    Server.PrintToChatAll(Localizer["leading.onweapon", player.PlayerName, player.LevelWeapon.Name]);
                     var pe = Utilities.GetPlayers().Where(p => p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
@@ -2943,7 +2972,7 @@ namespace GunGame
             // CurrentLeader != client
             if ( newLevel < GGVariables.Instance.CurrentLeader.Level )
             {
-                CCSPlayerController playerController = Utilities.GetPlayerFromSlot(player.Slot);
+                var playerController = Utilities.GetPlayerFromSlot(player.Slot);
                 if (IsValid(playerController))
                 {
                     // say how much to the lead
@@ -3060,7 +3089,7 @@ namespace GunGame
                 RegisterListener(onTick);
                 AddTimer(15.0f, () => {
                     RemoveListener("OnTick", onTick);
-                });
+                }); 
                 /*
                 int r = (team == TEAM_T ? 255 : 0);
                 int g =  team == TEAM_CT ? 128 : (team == TEAM_T ? 0 : 255);
@@ -3431,7 +3460,26 @@ namespace GunGame
                 return (int)player.Level;
             return 0;
         }
-
+        public static void RemoveWeaponsOnTheGround()
+        {
+            var entities = Utilities.FindAllEntitiesByDesignerName<CCSWeaponBaseGun>("weapon_");
+            foreach (var entity in entities)
+            {
+                if (!entity.IsValid)
+                {
+                    continue;
+                }
+                if (entity.State != CSWeaponState_t.WEAPON_NOT_CARRIED)
+                {
+                    continue;
+                }
+                if (entity.DesignerName.StartsWith("weapon_") == false)
+                {
+                    continue;
+                }
+                entity.Remove();
+            }
+        }
         [ConsoleCommand("music", "Turn On/off GG sounds")]
         public async void OnMusicCommand(CCSPlayerController? playerController, CommandInfo command)
         {
@@ -3657,20 +3705,37 @@ namespace GunGame
             }
             return player;
         }
-        public GGPlayer? FindBySlot (int slot)
+        public GGPlayer? FindBySlot (int slot, string name = "")
         {
             if (playerMap.TryGetValue(slot, out GGPlayer? player)) {
                 return player;
             }
             else
             {
-                Plugin.Logger.LogInformation($"[GUNGAME] ************ Error: Can't find player slot {slot} in playerMap.");
+                Plugin.Logger.LogInformation($"[GUNGAME] ************ Error: Can't find player slot {slot} in playerMap from {name}.");
                 return null;
             }
         }
         public bool PlayerExists(int slot)
         {
             return playerMap.TryGetValue(slot, out GGPlayer? player);
+        }
+        public GGPlayer? FindLeader ()
+        {
+            int leaderId = -1;
+            uint leaderLevel = 0;
+            foreach (var player in playerMap)
+            {
+                if ( player.Value.Level > leaderLevel )
+                {
+                    leaderLevel = player.Value.Level;
+                    leaderId = player.Key;
+                }
+            }
+            if (leaderId == -1)
+                return null;
+            else
+                return FindBySlot(leaderId);
         }
         public void ForgetPlayer (int slot)
         {
@@ -3738,12 +3803,15 @@ namespace GunGame
         public bool Music { get; set;}
         public void SetLevel( int setLevel)
         {
-            if (setLevel > GGVariables.Instance.WeaponOrderCount || setLevel < 1)
+            if (setLevel > GGVariables.Instance.WeaponOrderCount || setLevel < 0)
                 return;
             lock (lockObject)
             {
                 this.Level = (uint)setLevel;
-                LevelWeapon = GGVariables.Instance.weaponsList.FirstOrDefault(w => w.Level == Level)!;
+                if (setLevel > 0)
+                    LevelWeapon = GGVariables.Instance.weaponsList.FirstOrDefault(w => w.Level == Level)!;
+                else
+                    LevelWeapon = new();
             }
 //            if (!IsBot) Plugin.Logger.LogInformation($"{PlayerName} ({Slot}) - level {Level}");
         }

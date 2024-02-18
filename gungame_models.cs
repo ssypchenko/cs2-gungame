@@ -56,7 +56,6 @@ namespace GunGame.Models
         [JsonPropertyName("fullname")]
         public string FullName { get; set; } = "";
     }
-
     public class SpecialWeaponInfo
     {
         public int Knife { get; set; } = 0;
@@ -74,42 +73,50 @@ namespace GunGame.Models
         public int MolotovLevelIndex { get; set; } = 0;
         public int MolotovAmmoType { get; set; } = 0;
     }
-
     public class WeaponOrderSettings
-{
-    [JsonProperty("WeaponOrder")]
-    public Dictionary<int, string> WeaponOrder { get; set; }
-
-    [JsonProperty("MultipleKillsPerLevel")]
-    public Dictionary<int, int> MultipleKillsPerLevel { get; set; } = new Dictionary<int, int>();
-
-    [JsonProperty("RandomWeaponReserveLevels")]
-    public string RandomWeaponReserveLevels { get; set; } = "";
-
-    [JsonProperty("RandomWeaponOrder")]
-    public bool RandomWeaponOrder { get; set; }
-
-    // Constructor to ensure non-nullable initialization
-    public WeaponOrderSettings()
     {
-        WeaponOrder = new Dictionary<int, string>();
+        [JsonProperty("WeaponOrder")]
+        public Dictionary<int, string> WeaponOrder { get; set; }
+
+        [JsonProperty("MultipleKillsPerLevel")]
+        public Dictionary<int, int> MultipleKillsPerLevel { get; set; } = new Dictionary<int, int>();
+
+        [JsonProperty("RandomWeaponReserveLevels")]
+        public string RandomWeaponReserveLevels { get; set; } = "";
+
+        [JsonProperty("RandomWeaponOrder")]
+        public bool RandomWeaponOrder { get; set; }
+
+        // Constructor to ensure non-nullable initialization
+        public WeaponOrderSettings()
+        {
+            WeaponOrder = new Dictionary<int, string>();
+        }
     }
-}
     public class Weapon
     {
-        public int Level { get; set; }
+        public int Level { get; set; } = 0;
         public string Name { get; set; } = "";
         public string FullName { get; set; } = "";
-        public int Index { get; set; }
-        public int LevelIndex { get; set; }
-        public int Slot { get; set; }
-        public int Ammo { get; set; }
-        public int ClipSize { get; set; }
+        public int Index { get; set; } = -1;
+        public int LevelIndex { get; set; }  = -1;
+        public int Slot { get; set; }  = -1;
+        public int Ammo { get; set; }  = -1;
+        public int ClipSize { get; set; }  = -1;
     }
     public class Leader
     {
-        public uint Level { get; set; } = 0;
-        public int Slot { get; set; } = 0;
+        private readonly object lockObject = new();
+        public uint Level { get; private set; } = 0;
+        public int Slot { get; private set; } = -1;
+        public void SetLeader (int slot, int level)
+        {
+            lock (lockObject)
+            {
+                Level = (uint)level;
+                Slot = slot;
+            }
+        }
     }
     public class Winner
     {

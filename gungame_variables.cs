@@ -26,6 +26,7 @@ namespace GunGame.Variables
         public bool StatsEnabled { get; set; } = false;
         public List<Weapon> weaponsList = new();
         public int WeaponOrderCount { get; set; }
+        public List<string> WeaponsSkipFastSwitch = new();
         public bool IsActive = false;  // GG is active
         public Winner? GameWinner { get; set; }
         public Leader CurrentLeader { get; set; } = new();
