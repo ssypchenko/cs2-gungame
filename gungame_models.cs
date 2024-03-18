@@ -7,13 +7,19 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Modules.Utils;
+using CounterStrikeSharp.API.Modules.Memory;
 
 namespace GunGame.Models
 {
     public class Constants 
     {
         public const int MaxPlayers = 64;
+    }
+    public interface IEventSubscriber
+    {
+        void UnSubscribeEvents();
     }
     public class DatabaseSettings
     {
@@ -188,6 +194,47 @@ namespace GunGame.Models
             Killer = killer;
             Kills = kills;
             Result = true;
+        }
+    }
+    public class WeaponFragEventArgs : EventArgs
+    {
+        public int Killer { get; }
+        public string Weapon { get; }
+        public bool Result { get; set; }
+        public WeaponFragEventArgs(int killer, string weapon)
+        {
+            Killer = killer;
+            Weapon = weapon;
+            Result = true;
+        }
+    }
+    public class SpawnInfo
+    {
+        public Vector Position { get; set; }
+        public QAngle Rotation { get; set; }
+
+        public SpawnInfo(Vector position, QAngle rotation)
+        {
+            Position = position;
+            Rotation = rotation;
+        }
+    }
+    public static class PlayerExtensions
+    {
+        public static void ToggleNoclip(this CBasePlayerPawn pawn)
+        {
+            if (pawn.MoveType == MoveType_t.MOVETYPE_NOCLIP)
+            {
+                pawn.MoveType = MoveType_t.MOVETYPE_WALK;
+                Schema.SetSchemaValue(pawn.Handle, "CBaseEntity", "m_nActualMoveType", 2); // walk
+                Utilities.SetStateChanged(pawn, "CBaseEntity", "m_MoveType");
+            }
+            else
+            {
+                pawn.MoveType = MoveType_t.MOVETYPE_NOCLIP;
+                Schema.SetSchemaValue(pawn.Handle, "CBaseEntity", "m_nActualMoveType", 8); // noclip
+                Utilities.SetStateChanged(pawn, "CBaseEntity", "m_MoveType");
+            }
         }
     }
     public enum GGSounds

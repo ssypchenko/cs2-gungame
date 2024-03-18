@@ -8,6 +8,8 @@ public class GGConfig : BasePluginConfig
 {
     [JsonPropertyName("IsPluginEnabled")]
     public bool IsPluginEnabled { get; set; } = true;
+    [JsonPropertyName("RespawnByPlugin")]
+    public bool RespawnByPlugin { get; set; } = false;
     /* Remove objectives from map. 0 = Disabled, 1 = BOMB, 2 = HOSTAGE, 3 = BOTH*/
     [JsonPropertyName("RemoveObjectives")]
     public int RemoveObjectives { get; set; } = 3;

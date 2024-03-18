@@ -1,6 +1,5 @@
-﻿//sing CounterStrikeSharp.API;
-//using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Modules.Cvars;
+﻿using CounterStrikeSharp.API.Modules.Cvars;
+using CounterStrikeSharp.API.Modules.Utils;
 //using GunGame;
 using GunGame.Models;
 
@@ -21,6 +20,7 @@ namespace GunGame.Variables
             }
         }
         public string ServerLanguageCode = "en";
+        public string ActiveConfigFolder = "gungame";
         public ConVar? Mp_friendlyfire { get; set; }
         public Dictionary<int, int> CustomKillsPerLevel = new();
         public bool StatsEnabled { get; set; } = false;
@@ -48,9 +48,13 @@ namespace GunGame.Variables
             "set.sound",
             "top.list",
             "your.rank",
+            "change.language"
         };
         public string LooserName = "";
         public int InfoMessageIndex = 0;
+        public Dictionary<int, List<SpawnInfo>> spawnPoints = new();
+        public Vector [] Position = new Vector [65];
+
 //        public int g_WeaponAmmoTypeHegrenade { get; set; }
 //        public int g_WeaponAmmoTypeFlashbang { get; set; }
 //        public int g_WeaponAmmoTypeSmokegrenade { get; set; }
