@@ -16,6 +16,8 @@ Commands available now:
 - `gg_enable` - Turn on gungame and restart the game.
 - `gg_disable` - Turn off gungame and restart the game.
 - `gg_reset` - Reset all gungame stats.
+- `gg_config <foldername>` - Request to start gungame with settings in a different folder.
+- `gg_respawn <on/off>` - Switch between behaviour if the players respawns are managed by plugin or server.	
 - `!top` - Show the top winners on the server.
 - `!rank` - Show your current place in stats.
 - `!music` - Turn Off or On all plugin sounds for the player.
@@ -27,8 +29,8 @@ Commands available now:
 ## Requirements
 
 - Counter-Strike 2
-- Metamod:Source v1280+
-- Counter Strike Share v.159+
+- Metamod:Source v1282+
+- Counter Strike Share v.197+
 
 ## Installation
 
@@ -63,7 +65,6 @@ Future enhancements include:
 - Additional functionalities from the original plugin.
 - I've already added at least one important part that was not in the original plugin: shooting and knife protection, which you can turn off if you don't like it.
 I'm going to improve this plugin a lot in the near future. However, it will not be distributed for free. I'll describe it later. These improvements include
-- different folders with different settings for "special events" with the ability to run them from within the plugin or even schedule them.
 - leader and loser management (highlight leaders and losers)
 - Team balance management
 - Fair play settings to allow not only "professional" players to win,
