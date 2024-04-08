@@ -8,9 +8,7 @@ namespace GunGame.Variables
     public class GGVariables
     {
         private static GGVariables? _instance;
-
         private GGVariables() { }
-
         public static GGVariables Instance
         {
             get
@@ -30,11 +28,13 @@ namespace GunGame.Variables
         public bool IsActive = false;  // GG is active
         public Winner? GameWinner { get; set; }
         public Leader CurrentLeader { get; set; } = new();
-        public bool RoundStarted = false;
+        public bool RoundStarted { get; set; } = false;
+        public int Round = 0;
         public Objectives MapStatus { get; set; }
         public int HostageEntInfo { get; set; }
         public bool IsVotingCalled { get; set; }
         public bool WarmupFinished = false;
+        public bool FirstRound = false;
         public bool IsCalledEnableFriendlyFire { get; set; }
         public bool IsCalledDisableRtv { get; set; }
         public int PlayerOnGrenade { get; set; }

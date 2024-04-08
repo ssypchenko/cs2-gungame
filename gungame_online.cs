@@ -24,9 +24,21 @@ namespace GunGame.Online
         public bool SavingPlayer = false;
 		public OnlineManager(DBConfig dBConfig, GunGame plugin)
 		{
-                Plugin = plugin;
-                config = dBConfig;
-                InitializeDatabaseConnection();
+            Plugin = plugin;
+            config = dBConfig;
+            if (config != null)
+            {
+                if (config.DatabaseType.Trim().ToLower() == "mysql") 
+                {
+                    if (config.DatabaseHost.Length < 1 || config.DatabaseName.Length < 1 || config.DatabaseUser.Length < 1)
+                    {
+                        Console.WriteLine("[GunGame_OnlineManager] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
+                        Plugin.Logger.LogInformation("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
+                        return;
+                    }
+                    InitializeDatabaseConnection();
+                }
+            }
 		}
         private void InitializeDatabaseConnection()
         {

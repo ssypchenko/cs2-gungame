@@ -8,8 +8,9 @@ public class GGConfig : BasePluginConfig
 {
     [JsonPropertyName("IsPluginEnabled")]
     public bool IsPluginEnabled { get; set; } = true;
+    /* Random Respawn type 0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns */
     [JsonPropertyName("RespawnByPlugin")]
-    public bool RespawnByPlugin { get; set; } = false;
+    public int RespawnByPlugin { get; set; } = 0;
     /* Remove objectives from map. 0 = Disabled, 1 = BOMB, 2 = HOSTAGE, 3 = BOTH*/
     [JsonPropertyName("RemoveObjectives")]
     public int RemoveObjectives { get; set; } = 3;
@@ -380,7 +381,7 @@ public class GGConfig : BasePluginConfig
     * Dont give handicap level to bots too.
     */
     [JsonPropertyName("HandicapSkipBots")]
-    public bool HandicapSkipBots { get; set; } = true;
+    public bool HandicapSkipBots { get; set; } = false;
 
     /**
     * Maximum level that handicap can give.
@@ -719,4 +720,6 @@ public class GGConfig : BasePluginConfig
         "sounds/vo/commander/commander_comment_09.wav",
         "sounds/vo/commander/commander_comment_14.wav"
     };
+    [JsonPropertyName("SpawnDistance")]
+    public double SpawnDistance { get; set; } = 60.0;
 }

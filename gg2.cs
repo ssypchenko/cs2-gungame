@@ -54,7 +54,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.9";
+        public override string ModuleVersion => "v1.0.10";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public bool LogConnections = false;
@@ -104,7 +104,7 @@ namespace GunGame
             DBConfig onlineDBConfig = dbSettings.OnlineDB;
             statsManager = new(statsDBConfig, this);
             onlineManager = new(onlineDBConfig, this);
-            dbQueue = new DatabaseOperationQueue();
+            dbQueue = new DatabaseOperationQueue(this);
         }
         private void CreateDefaultConfigFile(string configFile)
         {
@@ -123,7 +123,7 @@ namespace GunGame
             };
             dbSettings.OnlineDB = new DBConfig
             {
-                DatabaseType = "MySQL",
+                DatabaseType = "",
                 DatabaseFilePath = "",
                 DatabaseHost = "your_mysql_host",
                 DatabaseName = "your_mysql_database",
@@ -188,16 +188,7 @@ namespace GunGame
                 Console.WriteLine($"[GunGame] Error reading or deserializing /csgo/cfg/{GGVariables.Instance.ActiveConfigFolder}/gungame.json file: {ex.Message}");
                 return false;
             }
-            if (Config.RespawnByPlugin)
-            {
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-            }
-            else
-            {
-                Server.ExecuteCommand("mp_respawn_on_death_t 1");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
-            }
+            SetSpawnRules(Config.RespawnByPlugin);
             return true;
         }
         public PlayerManager playerManager; 
@@ -906,6 +897,7 @@ namespace GunGame
         }
         private void InitVariables ()
         {
+            GGVariables.Instance.Round = 0;
             GGVariables.Instance.Tcount = 0;
             GGVariables.Instance.CTcount = 0;
             GGVariables.Instance.CurrentLeader.SetLeader(-1, 0);
@@ -916,6 +908,7 @@ namespace GunGame
             GGVariables.Instance.IsCalledEnableFriendlyFire = false;
             GGVariables.Instance.IsCalledDisableRtv = false;
             GGVariables.Instance.GameWinner = null;
+            GGVariables.Instance.FirstRound = false;
 
             GGVariables.Instance.Mp_friendlyfire = ConVar.Find("mp_friendlyfire");
 
@@ -943,7 +936,6 @@ namespace GunGame
             {   
                 var seconds = Config.WarmupTimeLength - WarmupCounter;
                 var playerEntities = GetValidPlayers();
-//                Utilities.GetPlayers().Where(p => p != null && p.IsValid && p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
                 if (playerEntities != null && playerEntities.Any())
                 {
                     foreach (var playerController in playerEntities)
@@ -967,6 +959,7 @@ namespace GunGame
                 return;
             }
             var mp_restartgame = ConVar.Find("mp_restartgame");
+            GGVariables.Instance.FirstRound = true; // to do necessary staff on the first round after warmup
             
             if (mp_restartgame != null )
             {
@@ -982,18 +975,7 @@ namespace GunGame
                 Server.ExecuteCommand("exec " + GGVariables.Instance.ActiveConfigFolder + "/gungame.warmupend.cfg");
             }
             Console.WriteLine("WarmUp End");
-            if (Config.ShootKnifeBlock)
-            {
-                var playerEntities = GetValidPlayersWithBots();
-//                Utilities.GetPlayers().Where(p => p != null && p.IsValid && p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
-                if (playerEntities != null && playerEntities.Any())
-                {
-                    foreach (var playerController in playerEntities)
-                    {
-                        ForgiveShots(playerController.Slot);
-                    }
-                }
-            }
+            
             AddTimer(3.0f, () => {
                 var entities = Utilities.FindAllEntitiesByDesignerName<CCSWeaponBaseGun>("weapon_");
                 foreach (var entity in entities)
@@ -1268,7 +1250,7 @@ namespace GunGame
                 if (weapon_used == "world" || weapon_used == "worldent" || weapon_used == "trigger_hurt" || weapon_used == "env_fire")
                 {
 //                    Console.WriteLine($"{VictimController.PlayerName} - died from world");
-                    if ( GGVariables.Instance.RoundStarted && Config.WorldspawnSuicide > 0)
+                    if (GGVariables.Instance.RoundStarted && Config.WorldspawnSuicide > 0)
                     {
                         // kill self with world spawn
                         ClientSuicide(Victim, Config.WorldspawnSuicide);
@@ -1284,7 +1266,7 @@ namespace GunGame
             {
 //                Console.WriteLine($"{VictimController.PlayerName} - suicide");
                 /* (Weapon is event weapon name, can be 'world' or 'hegrenade' etc) */ /* weapon is not 'world' (ie not kill command) */
-                if ( Config.CommitSuicide > 0 && GGVariables.Instance.RoundStarted && !Victim.TeamChange )
+                if (Config.CommitSuicide > 0 && GGVariables.Instance.RoundStarted && !Victim.TeamChange )
                 {
                     // killed himself by kill command or by hegrenade
                     ClientSuicide(Victim, Config.CommitSuicide);
@@ -1635,7 +1617,8 @@ namespace GunGame
         //  **************************************** check logic
                     if ( kills < killsPerLevel )
                     {
-                        PlaySound(KillerController, Config.MultiKillSound);
+                        if (!KillerController.IsBot)
+                            PlaySound(KillerController, Config.MultiKillSound);
 
                         if ( Config.MultiKillChat )
                         {
@@ -1882,57 +1865,81 @@ namespace GunGame
         }
         private HookResult EventRoundStartHandler<T>(T @event, GameEventInfo info) where T : GameEvent
         {
-            Console.WriteLine("[GUNGAME]********* Event Round Start");
-            Logger.LogInformation("[GUNGAME]********* Event Round Start");
+            GGVariables.Instance.Round++;
+            Console.WriteLine($"[GUNGAME]********* Round {GGVariables.Instance.Round} Start");
+            Logger.LogInformation($"[GUNGAME]********* Round {GGVariables.Instance.Round} Start");
             if ( !GGVariables.Instance.IsActive)
             {
                 return HookResult.Continue;
             }
-            var points = Utilities.FindAllEntitiesByDesignerName<CCSTeam>("point_servercommand");
-            foreach (var point in points)
+            if (GGVariables.Instance.Round == 1)
             {
-                point.Remove();
-            }
-
-            NativeAPI.IssueServerCommand("mp_t_default_secondary  \"\"");
-            NativeAPI.IssueServerCommand("mp_ct_default_secondary  \"\"");
-            NativeAPI.IssueServerCommand("mp_t_default_melee  \"\"");
-            NativeAPI.IssueServerCommand("mp_ct_default_melee  \"\"");
-            NativeAPI.IssueServerCommand("mp_equipment_reset_rounds 0");
-
-            for (int i = 0; i <= Models.Constants.MaxPlayers; i++)
-            {
-                if (playerManager.PlayerExists(i))
+                var points = Utilities.FindAllEntitiesByDesignerName<CCSTeam>("point_servercommand");
+                foreach (var point in points)
                 {
-                    var client = playerManager.FindBySlot(i, "EventRoundStartHandler");
-                    if (client != null)
+                    point.Remove();
+                }
+
+                NativeAPI.IssueServerCommand("mp_t_default_secondary  \"\"");
+                NativeAPI.IssueServerCommand("mp_ct_default_secondary  \"\"");
+                NativeAPI.IssueServerCommand("mp_t_default_melee  \"\"");
+                NativeAPI.IssueServerCommand("mp_ct_default_melee  \"\"");
+                NativeAPI.IssueServerCommand("mp_equipment_reset_rounds 0");
+
+                // get map spawn point
+                GGVariables.Instance.spawnPoints = new();
+                var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
+                var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
+                var dmSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_deathmatch_spawn");
+
+                GGVariables.Instance.spawnPoints[2] = new ();
+                GGVariables.Instance.spawnPoints[3] = new ();
+                GGVariables.Instance.spawnPoints[4] = new ();
+
+                foreach (var entity in tSpawns)
+                {
+                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
                     {
-                        client.SetLevel(1);
-                        UpdatePlayerScoreLevel(client.Slot);
+                        GGVariables.Instance.spawnPoints[2].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
                     }
                 }
-            }
-            // get map spawn point
-            GGVariables.Instance.spawnPoints = new();
-            var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
-            var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
 
-            GGVariables.Instance.spawnPoints[2] = new ();
-            GGVariables.Instance.spawnPoints[3] = new ();
-
-            foreach (var entity in tSpawns)
-            {
-                if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                foreach (var entity in ctSpawns)
                 {
-                    GGVariables.Instance.spawnPoints[2].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                    {
+                        GGVariables.Instance.spawnPoints[3].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                    }
                 }
-            }
-
-            foreach (var entity in ctSpawns)
-            {
-                if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                foreach (var entity in dmSpawns)
                 {
-                    GGVariables.Instance.spawnPoints[3].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                    {
+                        GGVariables.Instance.spawnPoints[4].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                    }
+                }
+                if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == 4)
+                    Config.RespawnByPlugin = 3;
+                Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
+            }
+            if (GGVariables.Instance.Round == 2 || !Config.WarmupEnabled)
+            {
+                var playerEntities = GetValidPlayersWithBots();
+                if (playerEntities != null && playerEntities.Count > 0)
+                {
+                    foreach (var playerController in playerEntities)
+                    {
+                        var client = playerManager.FindBySlot(playerController.Slot, "EventRoundStartHandler");
+                        if (client != null)
+                        {
+                            client.SetLevel(1);
+                            UpdatePlayerScoreLevel(playerController.Slot);
+                            if (Config.ShootKnifeBlock)
+                            {
+                                ForgiveShots(playerController.Slot);
+                            }
+                        }
+                    }
                 }
             }
             if (!warmupInitialized && Config.WarmupEnabled && warmupTimer == null && !GGVariables.Instance.WarmupFinished)
@@ -1948,9 +1955,9 @@ namespace GunGame
             /* Lock all player since the winner was declare already if new round happened. */
                 if (Config.WinnerFreezePlayers) {
                     FreezeAllPlayers();
+                    return HookResult.Continue;
                 }
             }
-            GGVariables.Instance.RoundStarted = true;
 
             /* Only remove the hostages on after it been initialized */
 /*            if(GGVariables.Instance.MapStatus.HasFlag(Objectives.Hostage) && GGVariables.Instance.MapStatus.HasFlag(Objectives.RemoveHostage))
@@ -1969,6 +1976,7 @@ namespace GunGame
                 GGVariables.Instance.DisableWarmupOnRoundEnd = false;
             } */
 //            RemoveEntityByClassName("game_player_equip");
+            GGVariables.Instance.RoundStarted = true;
             return HookResult.Continue;
         }
         private HookResult EventRoundEndHandler<T>(T @event, GameEventInfo info) where T : GameEvent
@@ -2543,12 +2551,15 @@ namespace GunGame
         }
         public void PlaySound(CCSPlayerController playerController, string str)
         {
-            if ( IsValidHuman(playerController)) 
+            if (IsValidPlayer(playerController)) 
             {
-                var player = playerManager.FindBySlot(playerController.Slot, "PlaySound pc");
-                if (player != null && player.Music) 
-                    playerController.ExecuteClientCommand("play " + str);
-//                    NativeAPI.IssueClientCommand (player.Slot, "play " + str);                
+                if (!playerController.IsBot)
+                {
+                    var player = playerManager.FindBySlot(playerController.Slot, "PlaySound pc");
+                    if (player != null && player.Music) 
+                        playerController.ExecuteClientCommand("play " + str);
+    //                    NativeAPI.IssueClientCommand (player.Slot, "play " + str);                
+                }
             }
             else
             {
@@ -3070,10 +3081,6 @@ namespace GunGame
                     {
                         foreach (var pc in pe)
                         {
-                            if (pc.Slot == 21)
-                            {
-                                Logger.LogInformation($"****** Slot 21 {pc.PlayerName} {pc.SteamID}");
-                            }
                             var pl = playerManager.FindBySlot(pc.Slot, "PrintLeaderToChat1");
                             if ( pl != null)
                             {
@@ -3440,14 +3447,8 @@ namespace GunGame
         }
         private int HumansPlay()
         {
-            var players = GetValidPlayers();
-            if (players != null)
-                return players.Count;
-            return 0;
-//            return Utilities.GetPlayers()
-//                .Where(p => p != null && p.IsValid && p.Connected == PlayerConnectedState.PlayerConnected 
-//                 && ((CsTeam)p.TeamNum == CsTeam.Terrorist || (CsTeam)p.TeamNum == CsTeam.CounterTerrorist)
-//                 && !p.IsBot && !p.IsHLTV).Count();
+            return Utilities.GetPlayers()
+            .Where(p => IsValidPlayer(p) && (p.TeamNum == 2 || p.TeamNum == 3)).Count();
         }
         public async void StatsLoadRank()
         {
@@ -3805,19 +3806,31 @@ namespace GunGame
         public void OnTurnRespawnCommand(CCSPlayerController? playerController, CommandInfo command)
         {
             if (command.ArgCount < 2) { return; }
-            if (command.GetArg(1) == "on")
+            if (int.TryParse(command.GetArg(1), out int intValue))
             {
-                Config.RespawnByPlugin = true;
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-                Console.WriteLine("Plugin Respawn on");
+                SetSpawnRules(intValue);
             }
-            else if (command.GetArg(1) == "off")
+            else
             {
-                Config.RespawnByPlugin = false;
-                Server.ExecuteCommand("mp_respawn_on_death_t 1");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
-                Console.WriteLine("Plugin Respawn off");
+                Console.WriteLine($"Error call gg_respawn with arg {command.GetArg(1)}");
+                Logger.LogError($"Error call gg_respawn with arg {command.GetArg(1)}");
+            }
+        }
+        [ConsoleCommand("gg_distance", "Set Respawn Distance")]
+        [CommandHelper(whoCanExecute: CommandUsage.SERVER_ONLY)]
+        public void OnRespawnDistance(CCSPlayerController? playerController, CommandInfo command)
+        {
+            if (playerController == null || !playerController.IsValid) { return; }
+            if (command.ArgCount < 2) { return; }
+
+            if (double.TryParse(command.GetArg(1), out double distance))
+            {
+                Config.SpawnDistance = distance;
+                Console.WriteLine($"Spawn Distance changed to {Config.SpawnDistance}.");
+            }
+            else
+            {
+                Console.WriteLine("String could not be parsed to double.");
             }
         }
         public HookResult OnChat(EventPlayerChat @event, GameEventInfo info)
@@ -3864,56 +3877,41 @@ namespace GunGame
         }
         private void Respawn(CCSPlayerController player, bool spawnpoint = true)
         {
-            if (!Config.RespawnByPlugin)
+            if (Config.RespawnByPlugin > 0)
             {
-                return;
-            }
-
-            if (IsValidPlayer(player))
-            {
-                CCSPlayerController pl = player;
-                AddTimer(1.0f, () => {
-                    if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) return;
-                    double thisDeathTime = Server.EngineTime;
-                    double deltaDeath = thisDeathTime - LastDeathTime[pl.Slot];
-                    LastDeathTime[pl.Slot] = thisDeathTime;
-                    if (deltaDeath < 0)
+                if (IsValidPlayer(player))
+                {
+                    CCSPlayerController pl = player;
+                    if ((Config.RespawnByPlugin == 1 && player.TeamNum != 2) || (Config.RespawnByPlugin == 2 && player.TeamNum != 3))
                     {
-                        Logger.LogError($"CRITICAL: Delta death is negative for slot {pl.Slot}!!!");
                         return;
                     }
-                    SpawnInfo spawn = null!;
-                    if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
-                    {
-                        spawn = GetSuitableSpawnPoint(pl.Slot, pl.TeamNum, 39.0);
-                        if (spawn == null)
+                    AddTimer(1.0f, () => {
+                        if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) return;
+                        double thisDeathTime = Server.EngineTime;
+                        double deltaDeath = thisDeathTime - LastDeathTime[pl.Slot];
+                        LastDeathTime[pl.Slot] = thisDeathTime;
+                        if (deltaDeath < 0)
                         {
-                            Logger.LogError($"Spawn point not found for {pl.PlayerName} ({pl.Slot})");
+                            Logger.LogError($"CRITICAL: Delta death is negative for slot {pl.Slot}!!!");
+                            return;
                         }
-                    }
-                    pl.Respawn();
-/*                    if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
-                    {
-                        pl.PlayerPawn.Value.Collision.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_DISSOLVING;
-                        pl.PlayerPawn.Value.Collision.CollisionAttribute.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_DISSOLVING;
-                        Utilities.SetStateChanged(pl, "CCollisionProperty", "m_CollisionGroup");
-                        Utilities.SetStateChanged(pl, "VPhysicsCollisionAttribute_t", "m_nCollisionGroup");
-                    } */
-                    if (spawn != null)
-                    {
-                        player.PlayerPawn.Value!.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
-                    }
-                });
-/*                AddTimer(2.0f, () => {
-                    if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) return;
-                    if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
-                    {
-                        pl.PlayerPawn.Value.Collision.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_PLAYER_MOVEMENT;
-                        pl.PlayerPawn.Value.Collision.CollisionAttribute.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_PLAYER_MOVEMENT;
-                        Utilities.SetStateChanged(pl, "CCollisionProperty", "m_CollisionGroup");
-                        Utilities.SetStateChanged(pl, "VPhysicsCollisionAttribute_t", "m_nCollisionGroup");
-                    }
-                }); */
+                        SpawnInfo spawn = null!;
+                        if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
+                        {
+                            spawn = GetSuitableSpawnPoint(pl.Slot, pl.TeamNum, Config.SpawnDistance);
+                            if (spawn == null)
+                            {
+                                Logger.LogError($"Spawn point not found for {pl.PlayerName} ({pl.Slot})");
+                            }
+                        }
+                        pl.Respawn();
+                        if (spawn != null)
+                        {
+                            player.PlayerPawn.Value!.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                        }
+                    });
+                }
             }
         }
         private static void Shuffle<T>(IList<T> list)
@@ -3931,14 +3929,20 @@ namespace GunGame
         }
         private SpawnInfo GetSuitableSpawnPoint(int slot, int team, double minDistance = 39.0)
         {
-            if (!GGVariables.Instance.spawnPoints.ContainsKey(team))
+            int spawnType;
+            if (Config.RespawnByPlugin == 4)
+                spawnType = 4;
+            else 
+                spawnType = team;
+
+            if (!GGVariables.Instance.spawnPoints.ContainsKey(spawnType))
             {
-                Logger.LogError($"SpawnPoints not ContainsKey {team}");
+                Logger.LogError($"SpawnPoints not ContainsKey {spawnType}");
                 return null!;
             }
 
             // Shuffle the spawn points list to randomize the selection process
-            var shuffledSpawns = new List<SpawnInfo>(GGVariables.Instance.spawnPoints[team]);
+            var shuffledSpawns = new List<SpawnInfo>(GGVariables.Instance.spawnPoints[spawnType]);
     
             // Shuffle the copy
             Shuffle(shuffledSpawns);
@@ -3959,6 +3963,52 @@ namespace GunGame
             Logger.LogInformation($"No suitable spawn points for player {slot}");
             // No suitable spawn point found
             return null!;
+        }
+        private void SetSpawnRules(int spawnType)
+        {
+            if (GGVariables.Instance.spawnPoints[4].Count < 1 && spawnType == 4)
+                spawnType = 3;
+                
+            if (spawnType == 1)
+            {
+                Config.RespawnByPlugin = 1;
+                Server.ExecuteCommand("mp_respawn_on_death_t 0");
+                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
+                Console.WriteLine("Plugin Respawn T on");
+            }
+            else if (spawnType == 2)
+            {
+                Config.RespawnByPlugin = 2;
+                Server.ExecuteCommand("mp_respawn_on_death_t 1");
+                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
+                Console.WriteLine("Plugin Respawn CT on");
+            }
+            if (spawnType == 3)
+            {
+                Config.RespawnByPlugin = 3;
+                Server.ExecuteCommand("mp_respawn_on_death_t 0");
+                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
+                Console.WriteLine("Plugin Respawn T and CT on");
+            }
+            else if (spawnType == 4)
+            {
+                Config.RespawnByPlugin = 4;
+                Server.ExecuteCommand("mp_respawn_on_death_t 0");
+                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
+                Console.WriteLine("Plugin Respawn DM on");
+            }
+            else if (spawnType == 0)
+            {
+                Config.RespawnByPlugin = 0;
+                Server.ExecuteCommand("mp_respawn_on_death_t 1");
+                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
+                Console.WriteLine("Plugin Respawn off");
+            }
+            else
+            {
+                Console.WriteLine($"Error set Respawn Rules with code {spawnType}");
+                Logger.LogError($"Error set Respawn Rules with code {spawnType}");
+            }
         }
         public List<CCSPlayerController> GetValidPlayers()
 		{
@@ -4031,24 +4081,6 @@ namespace GunGame
             }
             return player;
         }
-/*        public GGPlayer? GetPlayer(CCSPlayerController playerController, string module = "")
-        {
-            if (playerController == null || !playerController.IsValid)
-            {
-                return null;
-            }
-            if (!playerMap.TryGetValue(playerController.Slot, out GGPlayer? player)) {
-                
-                Plugin.Logger.LogInformation($"[GUNGAME] Call from {module}; Can't find player {playerController.PlayerName} in playerMapIndex. Try to create");
-                player = CreatePlayerBySlot(playerController.Slot);
-            }
-            if (player != null && player.Index == -1)
-            {
-                Plugin.Logger.LogError($"[GunGame] ******** GetPlayer Error, player Index = -1 for {playerController.PlayerName} ({playerController.Slot})");
-//                player.UpdatePlayerController(playerController);
-            }
-            return player;
-        } */
         public GGPlayer? FindBySlot (int slot, string name = "")
         {
             if (playerMap.TryGetValue(slot, out GGPlayer? player)) {
@@ -4092,27 +4124,54 @@ namespace GunGame
         }
         public bool IsPlayerNearby(int slot, Vector spawn, double minDistance = 39.0)
         {
+            if (playerMap.Count == 1)
+                return false;
+            double minD = 10000.0;
+            double dist;
+            string closest = "no";
+
             foreach (var player in playerMap)
             {
-                var pc = Utilities.GetPlayerFromSlot(player.Value.Slot);
-                if (!Plugin.IsValidPlayer(pc) || player.Value.Slot == slot)
-                {
+                if (player.Value.Slot == slot)
                     continue;
-                }
-
-                if (pc.PlayerPawn != null && pc.Pawn != null && 
-                    pc.PlayerPawn.IsValid && pc.PlayerPawn.Value != null && pc.Pawn.IsValid && pc.Pawn.Value != null && 
-                    pc.Pawn.Value.LifeState == (byte)LifeState_t.LIFE_ALIVE && 
-                    pc.PlayerPawn.Value.AbsOrigin != null)
+                var pc = Utilities.GetPlayerFromSlot(player.Value.Slot);
+                if (Plugin.IsValidPlayer(pc))
                 {
-                    if (IsPlayerNearEntity(spawn, pc.PlayerPawn.Value.AbsOrigin, minDistance))
+                    if (pc.PlayerPawn != null && pc.Pawn != null && 
+                        pc.PlayerPawn.IsValid && pc.PlayerPawn.Value != null && pc.Pawn.IsValid && pc.Pawn.Value != null &&  
+                        pc.PlayerPawn.Value.AbsOrigin != null)
                     {
-                        // The spawn point is too close to a player
-                        return true;
+/*                        if (IsPlayerNearEntity(spawn, pc.PlayerPawn.Value.AbsOrigin, minDistance))
+                        {
+                            return true;
+                        }*/
+                        if (pc.Pawn.Value.LifeState != (byte)LifeState_t.LIFE_ALIVE)
+                        {
+                            continue;
+                        }
+                        dist = PlayerDistance(spawn, pc.PlayerPawn.Value.AbsOrigin);
+                        if (dist < minD)
+                        {
+                            minD = dist;
+                            closest = pc.PlayerName;
+                        }
                     }
                 }
             }
-            return false;
+            string targetName = "target";
+            var target = Utilities.GetPlayerFromSlot(slot);
+            if (Plugin.IsValidPlayer(target))
+            {
+                targetName = target.PlayerName;
+            }
+            if (minD < minDistance)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
         private static bool IsPlayerNearEntity(Vector entity, Vector player, double minDistance = 39.0)
         {
@@ -4123,6 +4182,16 @@ namespace GunGame
 
             // Compare squared distances (since sqrt is monotonic, the comparison is equivalent)
             return squaredDistance <= (minDistance * minDistance);
+        }
+        private static double PlayerDistance(Vector entity, Vector player)
+        {
+            // Calculate the squared distance to avoid the square root for performance reasons
+            double Distance = Math.Sqrt((player.X - entity.X) * (player.X - entity.X) +
+                                    (player.Y - entity.Y) * (player.Y - entity.Y) +
+                                    (player.Z - entity.Z) * (player.Z - entity.Z));
+
+            // Compare squared distances (since sqrt is monotonic, the comparison is equivalent)
+            return Distance;
         }
     }
     public class GGPlayer
