@@ -17,7 +17,7 @@ Commands available now:
 - `gg_disable` - Turn off gungame and restart the game.
 - `gg_reset` - Reset all gungame stats.
 - `gg_config <foldername>` - Request to start gungame with settings in a different folder.
-- `gg_respawn <on/off>` - Switch between behaviour if the players respawns are managed by plugin or server.	
+- `gg_respawn <value>` - Switch between behaviour if the players respawns are managed by plugin or server.	0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns.
 - `!top` - Show the top winners on the server.
 - `!rank` - Show your current place in stats.
 - `!music` - Turn Off or On all plugin sounds for the player.
@@ -30,7 +30,7 @@ Commands available now:
 
 - Counter-Strike 2
 - Metamod:Source v1282+
-- Counter Strike Share v.197+
+- Counter Strike Share v.204+
 
 ## Installation
 
