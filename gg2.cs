@@ -54,7 +54,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.10";
+        public override string ModuleVersion => "v1.0.11";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public bool LogConnections = false;
@@ -3808,6 +3808,8 @@ namespace GunGame
             if (command.ArgCount < 2) { return; }
             if (int.TryParse(command.GetArg(1), out int intValue))
             {
+                if (intValue == 4 && GGVariables.Instance.spawnPoints[4].Count < 1)
+                    intValue = 3;
                 SetSpawnRules(intValue);
             }
             else
@@ -3966,9 +3968,6 @@ namespace GunGame
         }
         private void SetSpawnRules(int spawnType)
         {
-            if (GGVariables.Instance.spawnPoints[4].Count < 1 && spawnType == 4)
-                spawnType = 3;
-                
             if (spawnType == 1)
             {
                 Config.RespawnByPlugin = 1;
