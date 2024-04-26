@@ -18,6 +18,7 @@ using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
+using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Core.Translations;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
@@ -43,6 +44,10 @@ using Serilog;
 
 namespace GunGame
 {
+    public class CoreAPI : IAPI
+    {
+        public event Action<int>? OnPlayerLoaded;
+    }
     public class GunGame : BasePlugin, IPluginConfig<GGConfig>
     {
         public bool Hot_Reload = false;
@@ -54,9 +59,11 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.11";
+        public override string ModuleVersion => "v1.0.12";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
+        public CoreAPI CoreAPI { get; set; } = null!;
+        private static PluginCapability<IAPI> APICapability { get; } = new("gungame:api");
         public bool LogConnections = false;
         public bool WeaponLoaded = false;
         private bool warmupInitialized = false;
@@ -298,6 +305,8 @@ namespace GunGame
         }
         public override void Load(bool hotReload)
         {
+            CoreAPI = new CoreAPI();
+            Capabilities.RegisterPluginCapability(APICapability, () => CoreAPI);
             LoadEventSubscribers();
             LoadDBConfig();
             if (hotReload)
@@ -703,7 +712,7 @@ namespace GunGame
             RegisterListener<Listeners.OnMapStart>(name =>
             {
                 Logger.LogInformation($"[GunGame] map {Server.MapName} loaded");
-                if (onlineManager.OnlineReportEnable)
+                if (onlineManager != null && onlineManager.OnlineReportEnable)
                 {
                     _ = onlineManager.ClearAllPlayerData(name);
                 }
@@ -766,16 +775,16 @@ namespace GunGame
                     if (GGVariables.Instance.MapStatus.HasFlag(Objectives.Bomb))
                     {
                         IsObjectiveHooked = false;
-                        DeregisterEventHandler("bomb_planted", EventBombHandler<EventBombPlanted>, true);
-                        DeregisterEventHandler("bomb_exploded", EventBombHandler<EventBombExploded>, true);
-                        DeregisterEventHandler("bomb_defused", EventBombHandler<EventBombDefused>, true);
-                        DeregisterEventHandler("bomb_pickup", EventBombPickupHandler, true);
+                        DeregisterEventHandler<EventBombPlanted>(EventBombHandler);
+                        DeregisterEventHandler<EventBombExploded>(EventBombHandler);
+                        DeregisterEventHandler<EventBombDefused>(EventBombHandler);
+                        DeregisterEventHandler<EventBombPickup>(EventBombPickupHandler);
                     }
                 
                     if (GGVariables.Instance.MapStatus.HasFlag(Objectives.Hostage))
                     {
                         IsObjectiveHooked = false;
-                        DeregisterEventHandler("hostage_killed", EventHostageKilledHandler<EventHostageKilled>, true);
+                        DeregisterEventHandler<EventHostageKilled>(EventHostageKilledHandler);
                     }
                 }
             });
@@ -785,7 +794,7 @@ namespace GunGame
                 if (player == null) {
                     return;
                 }
-                if (onlineManager.OnlineReportEnable)
+                if (onlineManager != null && onlineManager.OnlineReportEnable)
                 {
                     _ = onlineManager.RemovePlayerData(player);
                 }
@@ -1842,7 +1851,7 @@ namespace GunGame
             }
             if (player.SavedSteamID != 0)
             {
-                if (onlineManager.OnlineReportEnable)
+                if (onlineManager != null && onlineManager.OnlineReportEnable)
                 {
                     if (newTeam == (int)CsTeam.Terrorist)
                         _ = onlineManager.SavePlayerData(player, "t");
@@ -3224,7 +3233,7 @@ namespace GunGame
                 Listeners.OnTick onTick = new(OnTickHandle);
                 RegisterListener(onTick);
                 AddTimer(15.0f, () => {
-                    RemoveListener("OnTick", onTick);
+                    RemoveListener(onTick);
                 }); 
                 /*
                 int r = (team == TEAM_T ? 255 : 0);
@@ -3281,7 +3290,7 @@ namespace GunGame
             var pc = Utilities.GetPlayerFromSlot(player.Slot);
             if ( IsValidPlayer(pc))
             {
-                if (onlineManager.OnlineReportEnable && player != null)
+                if (onlineManager != null && onlineManager.OnlineReportEnable && player != null)
                 {
                     if (pc.TeamNum == (int)CsTeam.Terrorist)
                         _ = onlineManager.SavePlayerData(player, "t");
@@ -3448,7 +3457,7 @@ namespace GunGame
         private int HumansPlay()
         {
             return Utilities.GetPlayers()
-            .Where(p => IsValidPlayer(p) && (p.TeamNum == 2 || p.TeamNum == 3)).Count();
+            .Where(p => IsValidHuman(p) && (p.TeamNum == 2 || p.TeamNum == 3)).Count();
         }
         public async void StatsLoadRank()
         {
@@ -4088,6 +4097,11 @@ namespace GunGame
             else
             {
                 Plugin.Logger.LogInformation($"[GUNGAME] Can't find player slot {slot} in playerMap from {name}.");
+                var pc = Utilities.GetPlayerFromSlot(slot);
+                if (pc != null)
+                {
+                    Server.ExecuteCommand($"kickid {pc.UserId} NoSteamId");
+                }   
                 return null;
             }
         }
@@ -4321,12 +4335,29 @@ namespace GunGame
         }
         public async Task<bool> UpdateLanguage(string isoCode)
         {
-            Culture = new CultureInfo(isoCode);
-            SetLanguage();
-            bool success = false;
-            if (Plugin.statsManager != null)
+            bool found = false;
+            try
             {
-                success = await Plugin.statsManager.UpdateLanguage(this);
+                Culture = new CultureInfo(isoCode);
+                found = true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GunGame - FATAL]******* Error with Culture for isoCode {isoCode}: {ex.Message}");
+                Server.NextFrame(() =>
+                {
+                    Plugin.Logger.LogError($"[GunGame - FATAL]******* Error with Culture for isoCode {isoCode}: {ex.Message}");
+                });
+            }
+            bool success = false;
+            if (found)
+            {
+                SetLanguage();
+                
+                if (Plugin.statsManager != null)
+                {
+                    success = await Plugin.statsManager.UpdateLanguage(this);
+                }
             }
             return success;
         }
@@ -4373,6 +4404,10 @@ namespace GunGame
             NumberOfNades = 0;
             SetLevel(1);
         }
+    }
+    public interface IAPI
+    {
+        event Action<int> OnPlayerLoaded;
     }
 }
 // Colors Available = "{default} {white} {darkred} {green} {lightyellow}" "{lightblue} {olive} {lime} {red} {lightpurple}"

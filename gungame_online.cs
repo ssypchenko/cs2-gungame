@@ -22,7 +22,7 @@ namespace GunGame.Online
         public DBConfig config = new();
         public bool OnlineReportEnable = false;
         public bool SavingPlayer = false;
-		public OnlineManager(DBConfig dBConfig, GunGame plugin)
+		public OnlineManager(DBConfig dBConfig, GunGame plugin) 
 		{
             Plugin = plugin;
             config = dBConfig;
@@ -36,11 +36,11 @@ namespace GunGame.Online
                         Plugin.Logger.LogInformation("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
                         return;
                     }
-                    InitializeDatabaseConnection();
+                    _ = InitializeDatabaseConnectionAsync();
                 }
             }
 		}
-        private void InitializeDatabaseConnection()
+        private async Task InitializeDatabaseConnectionAsync()
         {
             try
             {
@@ -53,11 +53,13 @@ namespace GunGame.Online
                     Port = (uint)config.DatabasePort,
                 };
                 _mysqlConn = new MySqlConnection(builder.ConnectionString);
-                _mysqlConn.Open();
+                
+                // Asynchronously open the MySQL connection
+                await _mysqlConn.OpenAsync();
                 Console.WriteLine("[GunGame_Online] Connection to database established successfully.");
 
-                // Remember to close the connection after testing
-                _mysqlConn.Close();
+                // Asynchronously close the connection after testing
+                await _mysqlConn.CloseAsync();
 
                 OnlineReportEnable = true;
             } 
@@ -66,6 +68,7 @@ namespace GunGame.Online
                 Console.WriteLine($"[GunGame_Online - FATAL] InitializeDatabaseConnection: Database connection error: {ex.Message}, working without online reports");
             }
         }
+
         public async Task SavePlayerData(GGPlayer player, string team)
 		{
             if (!OnlineReportEnable)

@@ -139,6 +139,9 @@ namespace GunGame.Stats
                     });
                     return;
                 }
+                Server.NextFrame(() => {
+                    Plugin.Logger.LogInformation($"[GunGame_Stats] Initialised MySQL Database connection for stats");
+                });
             }
             else
             {
@@ -214,7 +217,7 @@ namespace GunGame.Stats
             if (!_isDatabaseReady || player == null) return;
 			string safePlayerName = System.Net.WebUtility.HtmlEncode(player.PlayerName);
             bool playerExists = false;
-            string query = "SELECT `wins`, `sound` FROM `gungame_playerdata` WHERE `authid` = @authid;";
+            string query = "SELECT `wins`, FROM `gungame_playerdata` WHERE `authid` = @authid;";
             int wins = 0;
             var playerController = Utilities.GetPlayerFromSlot(player.Slot);
             if (playerController == null || !playerController.IsValid || playerController.SteamID == 0)
@@ -236,17 +239,14 @@ namespace GunGame.Stats
                     try
                     {
                         await _sqliteConn.OpenAsync();
-
-                        // Use parameterized queries to prevent SQL injection
-                        string checkPlayerExistsQuery = "SELECT wins FROM gungame_playerdata WHERE authid = @authid";
-                        await using (var checkCommand = new SqliteCommand(checkPlayerExistsQuery, _sqliteConn))
+                        await using (var checkCommand = new SqliteCommand(query, _sqliteConn))
                         {
                             checkCommand.Parameters.AddWithValue("@authid", playerController.SteamID);
                             using (var reader = await checkCommand.ExecuteReaderAsync())
                             {
                                 if (await reader.ReadAsync())
                                 {
-                                    wins = reader.GetInt32(1);
+                                    wins = reader.GetInt32(0);
                                     playerExists = true;
                                 }
                             }
@@ -293,61 +293,75 @@ namespace GunGame.Stats
 			else if (DatabaseType == DatabaseType.MySQL)
             {
                 DateTime now = DateTime.Now;
-                MySqlConnection _mysqlConn = new (_builder.ConnectionString);
-                try
+                using (var _mysqlConn = new MySqlConnection(_builder.ConnectionString))
                 {
-                    await _mysqlConn.OpenAsync();
-                    var command = new MySqlCommand(query, _mysqlConn);
-                    command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                    using (var reader = await command.ExecuteReaderAsync())
+                    try
                     {
-                        if (await reader.ReadAsync())
+                        await _mysqlConn.OpenAsync();
+                        using (var command = new MySqlCommand(query, _mysqlConn))
                         {
-                            wins = reader.GetInt32("wins");
-                            playerExists = true;
+                            command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                            using (var reader = await command.ExecuteReaderAsync())
+                            {
+                                if (await reader.ReadAsync() && !reader.IsDBNull(reader.GetOrdinal("wins")))
+                                {
+                                    wins = reader.GetInt32("wins") + 1;
+                                }
+                                else
+                                {
+                                    wins = 1; // Set wins to 1 if not found
+                                }
+                            }
+                        }
+
+                        // Update or insert the player data
+                        string upsertQuery = @"
+                            INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) 
+                            VALUES (@wins, @SavedSteamID, @PlayerName, @now)
+                            ON DUPLICATE KEY UPDATE `name` = @PlayerName, `wins` = @wins, `timestamp` = @now;";
+
+                        using (var upsertCommand = new MySqlCommand(upsertQuery, _mysqlConn))
+                        {
+                            upsertCommand.Parameters.AddWithValue("@wins", player.PlayerWins);
+                            upsertCommand.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
+                            upsertCommand.Parameters.AddWithValue("@PlayerName", safePlayerName);
+                            upsertCommand.Parameters.AddWithValue("@now", now);
+                            await upsertCommand.ExecuteNonQueryAsync();
                         }
                     }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[GunGame_Stats - FATAL] SavePlayerWin ******* An error occurred: {ex.Message}");
+                        Server.NextFrame(() => {
+                            Plugin.Logger.LogError($"[GunGame_Stats - FATAL] SavePlayerWin ******* An error occurred: {ex.Message}");
+                        });
+                    }
+                }
 
-                    if (playerExists)
-                    {
-                        player.SetWins(++wins);
-                    }
-                    else
-                    {
-                        player.SetWins(1);
-                    }
-
-                    query = "INSERT INTO `gungame_playerdata` (`wins`, `authid`, `name`, `timestamp`) " +
-                    "VALUES (@wins, @SavedSteamID, @PlayerName, @now) " +
-                    "ON DUPLICATE KEY UPDATE `name` = @PlayerName, `wins` = @wins, `timestamp` = @now;";
-                
-                    using (command = new MySqlCommand(query, _mysqlConn))
-                    {
-                        command.Parameters.AddWithValue("@wins", player.PlayerWins);
-                        command.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
-                        command.Parameters.AddWithValue("@PlayerName", safePlayerName);
-                        command.Parameters.AddWithValue("@now", now);
-                        await command.ExecuteNonQueryAsync();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[GunGame_Stats - FATAL] SavePlayerWin ******* An error occurred: {ex.Message}");
-                    Server.NextFrame(() => {
-                        Plugin.Logger.LogError($"[GunGame_Stats - FATAL] SavePlayerWin ******* An error occurred: {ex.Message}");
-                    });
-                }
-                finally
-                {
-                    await _mysqlConn.CloseAsync();
-                }
             }
-            Console.WriteLine($"[GunGame_Stats] Saved player wins for {player.PlayerName} - {player.PlayerWins}");
-            Server.NextFrame(() => {
-                Plugin.Logger.LogInformation($"[GunGame_Stats] Saving player wins for {player.PlayerName}");
-                if (player != null)
-                    player.SavedWins(true, 0);
-            });
+            if (wins != 0)
+            {
+                Console.WriteLine($"[GunGame_Stats] Saved player wins for {player.PlayerName} - {player.PlayerWins}");
+                Server.NextFrame(() => {
+                    if (player != null) 
+                    {
+                        Plugin.Logger.LogInformation($"[GunGame_Stats] Saving player wins for {player.PlayerName}");
+                        player.SetWins(wins);
+                        player.SavedWins(true, 0);
+                    }
+                });
+            }
+            else
+            {
+                Console.WriteLine($"[GunGame_Stats] ***** Can't saved player wins for {player.PlayerName} - {player.PlayerWins}");
+                Server.NextFrame(() => {
+                    if (player != null) 
+                    {
+                        Plugin.Logger.LogInformation($"[GunGame_Stats] Error saving player wins for {player.PlayerName}");
+                        player.SavedWins(false, 0);
+                    }
+                });
+            }
 		}
         // Add check in main plugin if the function work
         public async Task GetPlayerWins(GGPlayer player)
