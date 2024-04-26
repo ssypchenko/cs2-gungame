@@ -59,7 +59,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.12";
+        public override string ModuleVersion => "v1.0.13";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -204,7 +204,6 @@ namespace GunGame
         private CounterStrikeSharp.API.Modules.Timers.Timer? warmupTimer = null;
         private CounterStrikeSharp.API.Modules.Timers.Timer? endGameTimer = null;
         private CounterStrikeSharp.API.Modules.Timers.Timer? _infoTimer = null;
-//        private static MemoryFunctionVoid<CBasePlayerController, CCSPlayerPawn, bool, bool>? CBasePlayerController_SetPawnFunc = null;
         public delegate void WinnerEventHandler(object sender, WinnerEventArgs e);
         public event WinnerEventHandler? WinnerEvent;
         public void RaiseWinnerEvent(int winner, int looser)
@@ -314,7 +313,6 @@ namespace GunGame
                 Hot_Reload = true;
                 Logger.LogInformation("[GUNGAME] Hot Reload");
             }
-//            CBasePlayerController_SetPawnFunc = new(GameData.GetSignature("CBasePlayerController_SetPawn"));
             if (LoadConfig())
             {
                 SetupGameWeapons();
@@ -326,7 +324,6 @@ namespace GunGame
                     {
                         FindMapObjective();
                         var playerEntities = GetValidPlayersWithBots();
-//                        Utilities.GetPlayers().Where(p => p != null && p.IsValid && p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
                         if (playerEntities != null && playerEntities.Any())
                         {
                             foreach (var playerController in playerEntities)
@@ -369,7 +366,6 @@ namespace GunGame
                     FindMapObjective();
                     StatsLoadRank();
                     var playerEntities = GetValidPlayersWithBots();
-//                    Utilities.GetPlayers().Where(p => p != null && p.IsValid && p.Connected == PlayerConnectedState.PlayerConnected && !p.IsHLTV);
                     if (playerEntities != null && playerEntities.Any())
                     {
                         foreach (var playerController in playerEntities)
@@ -398,10 +394,6 @@ namespace GunGame
                     }
                     warmupInitialized = false;
                     GGVariables.Instance.WarmupFinished = false;
-/*                    if (Config.WarmupEnabled)
-                    {
-                        StartWarmupRound();
-                    } */
                 }
             }
             else
@@ -754,6 +746,46 @@ namespace GunGame
                 {
                     Logger.LogError("Error loading config on Mapstart");
                 }
+                AddTimer(3.6f, () => {
+                    // get map spawn point
+                    GGVariables.Instance.spawnPoints = new();
+                    var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
+                    Logger.LogInformation($"tSpawns {tSpawns.Count()}");
+                    var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
+                    Logger.LogInformation($"ctSpawns {ctSpawns.Count()}");
+                    var dmSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_deathmatch_spawn");
+                    Logger.LogInformation($"dmSpawns {dmSpawns.Count()}");
+
+                    GGVariables.Instance.spawnPoints[2] = new ();
+                    GGVariables.Instance.spawnPoints[3] = new ();
+                    GGVariables.Instance.spawnPoints[4] = new ();
+
+                    foreach (var entity in tSpawns)
+                    {
+                        if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                        {
+                            GGVariables.Instance.spawnPoints[2].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                        }
+                    }
+
+                    foreach (var entity in ctSpawns)
+                    {
+                        if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                        {
+                            GGVariables.Instance.spawnPoints[3].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                        }
+                    }
+                    foreach (var entity in dmSpawns)
+                    {
+                        if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                        {
+                            GGVariables.Instance.spawnPoints[4].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                        }
+                    }
+                    if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == 4)
+                        Config.RespawnByPlugin = 3;
+                    Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
+                });
                 AddTimer(10.0f, () => {
                     LogConnections = true;
                 });
@@ -1054,7 +1086,6 @@ namespace GunGame
                 Logger.LogError($"[GUNGAME]PlayerSpawnHandler: {playerController.PlayerName} slot {client.Slot} does not have LevelWeapon");
             }
             UpdatePlayerScoreLevel(client.Slot);
-            
             client.TeamChange = false;
 
             // Reset Knife Elite state 
@@ -1112,12 +1143,11 @@ namespace GunGame
 //                    SetEntData(client, OffsetDefuser, 1);
                 }
             }
-
             if ( Config.WarmupEnabled && !GGVariables.Instance.WarmupFinished )
             {
 
                 GiveWarmUpWeaponDelayed(0.5f, client.Slot);
-                AddTimer(0.7f, () => {
+/*                AddTimer(0.7f, () => {
                     if (playerController != null && playerController.IsValid && !playerController.IsBot)
                     {
                         var player = playerManager.FindBySlot(playerController.Slot, "EventPlayerSpawnHandler");
@@ -1128,23 +1158,20 @@ namespace GunGame
                                 playerController.PrintToChat(player.Translate("warmup.notstarted"));
                             } else {
                                 playerController.PrintToChat(player.Translate("warmup.started"));
-                            }
-                        }
+                            } 
+                        } 
                     }
-                });
+                }); */
                 
 
                 return HookResult.Continue;
             }
-
             AddTimer(0.1f, () =>
             {
                 GiveNextWeapon(client.Slot, false, true);
             });
-            
             int Level = (int)client.Level;
             int killsPerLevel = GetCustomKillPerLevel(Level);
-
             if (!playerController.IsBot)
             {
                 if ( !Config.ShowSpawnMsgInHintBox )
@@ -1806,6 +1833,7 @@ namespace GunGame
             int newTeam = @event.Team;
             bool disconnect = @event.Disconnect;
             CCSPlayerController playerController = @event.Userid;
+            int slot = playerController.Slot;
 
             if (playerController == null || !playerController.IsValid)
                  return HookResult.Continue;
@@ -1813,7 +1841,6 @@ namespace GunGame
             {
                 Respawn(playerController);
             }
-
             if (@event.Isbot || !(newTeam == 2 || newTeam == 3 || oldTeam == 2 || oldTeam == 3))
             {
                 return HookResult.Continue;
@@ -1834,7 +1861,6 @@ namespace GunGame
                     }
                 }
             });
-
             if (disconnect || newTeam == 0)
             {
                 return HookResult.Continue;
@@ -1888,49 +1914,15 @@ namespace GunGame
                 {
                     point.Remove();
                 }
+// Player client crashes here
+//                NativeAPI.IssueServerCommand("mp_t_default_secondary  \"\"");
+//                NativeAPI.IssueServerCommand("mp_ct_default_secondary  \"\"");
+//                NativeAPI.IssueServerCommand("mp_t_default_melee  \"\"");
+//                NativeAPI.IssueServerCommand("mp_ct_default_melee  \"\"");
+//                NativeAPI.IssueServerCommand("mp_equipment_reset_rounds 0");
 
-                NativeAPI.IssueServerCommand("mp_t_default_secondary  \"\"");
-                NativeAPI.IssueServerCommand("mp_ct_default_secondary  \"\"");
-                NativeAPI.IssueServerCommand("mp_t_default_melee  \"\"");
-                NativeAPI.IssueServerCommand("mp_ct_default_melee  \"\"");
-                NativeAPI.IssueServerCommand("mp_equipment_reset_rounds 0");
-
-                // get map spawn point
-                GGVariables.Instance.spawnPoints = new();
-                var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
-                var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
-                var dmSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_deathmatch_spawn");
-
-                GGVariables.Instance.spawnPoints[2] = new ();
-                GGVariables.Instance.spawnPoints[3] = new ();
-                GGVariables.Instance.spawnPoints[4] = new ();
-
-                foreach (var entity in tSpawns)
-                {
-                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                    {
-                        GGVariables.Instance.spawnPoints[2].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                    }
-                }
-
-                foreach (var entity in ctSpawns)
-                {
-                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                    {
-                        GGVariables.Instance.spawnPoints[3].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                    }
-                }
-                foreach (var entity in dmSpawns)
-                {
-                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                    {
-                        GGVariables.Instance.spawnPoints[4].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                    }
-                }
-                if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == 4)
-                    Config.RespawnByPlugin = 3;
-                Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
             }
+
             if (GGVariables.Instance.Round == 2 || !Config.WarmupEnabled)
             {
                 var playerEntities = GetValidPlayersWithBots();
@@ -1951,6 +1943,7 @@ namespace GunGame
                     }
                 }
             }
+            
             if (!warmupInitialized && Config.WarmupEnabled && warmupTimer == null && !GGVariables.Instance.WarmupFinished)
             {
                 StartWarmupRound();
@@ -1961,7 +1954,7 @@ namespace GunGame
                 return HookResult.Continue;
             }
             if (GGVariables.Instance.GameWinner != null) {
-            /* Lock all player since the winner was declare already if new round happened. */
+                // Lock all player since the winner was declare already if new round happened.
                 if (Config.WinnerFreezePlayers) {
                     FreezeAllPlayers();
                     return HookResult.Continue;
@@ -2098,7 +2091,6 @@ namespace GunGame
             AddTimer(delay, () =>
             {
                 var playerController = Utilities.GetPlayerFromSlot(slot);
-                
                 if (IsValidPlayer(playerController) && playerController.Pawn != null && 
                 playerController.Pawn.Value != null && playerController.Pawn.Value.LifeState == (byte)LifeState_t.LIFE_ALIVE ) 
                 {
@@ -2124,18 +2116,14 @@ namespace GunGame
                         }
                     }
                     playerController.RemoveWeapons();
-
                     if ( Config.ArmorKevlarHelmet ) playerController.GiveNamedItem("item_assaultsuit");
                     playerController.GiveNamedItem("weapon_knife");
-
                     if (nades) {
                         playerController.GiveNamedItem("weapon_hegrenade");
                     }
-                    
                     if (wpn) {
                         playerController.GiveNamedItem("weapon_" + Config.WarmupWeapon);
                     }
-
                     if (!nades && !wpn) {
                         player.UseWeapon(3); // give knife
                     }
@@ -4097,11 +4085,11 @@ namespace GunGame
             else
             {
                 Plugin.Logger.LogInformation($"[GUNGAME] Can't find player slot {slot} in playerMap from {name}.");
-                var pc = Utilities.GetPlayerFromSlot(slot);
+/*                var pc = Utilities.GetPlayerFromSlot(slot);
                 if (pc != null)
                 {
                     Server.ExecuteCommand($"kickid {pc.UserId} NoSteamId");
-                }   
+                }   */
                 return null;
             }
         }
