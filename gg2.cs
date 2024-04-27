@@ -59,7 +59,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.0.13";
+        public override string ModuleVersion => "v1.0.14";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -750,11 +750,8 @@ namespace GunGame
                     // get map spawn point
                     GGVariables.Instance.spawnPoints = new();
                     var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
-                    Logger.LogInformation($"tSpawns {tSpawns.Count()}");
                     var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
-                    Logger.LogInformation($"ctSpawns {ctSpawns.Count()}");
                     var dmSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_deathmatch_spawn");
-                    Logger.LogInformation($"dmSpawns {dmSpawns.Count()}");
 
                     GGVariables.Instance.spawnPoints[2] = new ();
                     GGVariables.Instance.spawnPoints[3] = new ();

@@ -217,7 +217,7 @@ namespace GunGame.Stats
             if (!_isDatabaseReady || player == null) return;
 			string safePlayerName = System.Net.WebUtility.HtmlEncode(player.PlayerName);
             bool playerExists = false;
-            string query = "SELECT `wins`, FROM `gungame_playerdata` WHERE `authid` = @authid;";
+            string query = "SELECT `wins` FROM `gungame_playerdata` WHERE `authid` = @authid;";
             int wins = 0;
             var playerController = Utilities.GetPlayerFromSlot(player.Slot);
             if (playerController == null || !playerController.IsValid || playerController.SteamID == 0)
