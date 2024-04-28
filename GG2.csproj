@@ -7,7 +7,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.217" />
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.219" />
     <PackageReference Include="MaxMind.GeoIP2" Version="*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
     <PackageReference Include="MySqlConnector" Version="*" />

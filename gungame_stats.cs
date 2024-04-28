@@ -261,10 +261,10 @@ namespace GunGame.Stats
                         {
                             wins = 1; // Set to 1 if the player does not exist
                         }
-                        Server.NextFrame(() => {
+/*                        Server.NextFrame(() => {
                             if (player != null)
                                 player.SetWins(wins);
-                        });
+                        }); */
 
                         // Insert or update player data
                         string upsertQuery = @"
@@ -322,7 +322,7 @@ namespace GunGame.Stats
 
                         using (var upsertCommand = new MySqlCommand(upsertQuery, _mysqlConn))
                         {
-                            upsertCommand.Parameters.AddWithValue("@wins", player.PlayerWins);
+                            upsertCommand.Parameters.AddWithValue("@wins", wins);
                             upsertCommand.Parameters.AddWithValue("@SavedSteamID", player.SavedSteamID);
                             upsertCommand.Parameters.AddWithValue("@PlayerName", safePlayerName);
                             upsertCommand.Parameters.AddWithValue("@now", now);
@@ -341,13 +341,13 @@ namespace GunGame.Stats
             }
             if (wins != 0)
             {
-                Console.WriteLine($"[GunGame_Stats] Saved player wins for {player.PlayerName} - {player.PlayerWins}");
+                Console.WriteLine($"[GunGame_Stats] Saved player wins for {player.PlayerName} - {wins}");
                 Server.NextFrame(() => {
                     if (player != null) 
                     {
-                        Plugin.Logger.LogInformation($"[GunGame_Stats] Saving player wins for {player.PlayerName}");
                         player.SetWins(wins);
                         player.SavedWins(true, 0);
+                        Plugin.Logger.LogInformation($"[GunGame_Stats] Saved player wins for {player.PlayerName} - {wins}");
                     }
                 });
             }
