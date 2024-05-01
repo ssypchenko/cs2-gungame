@@ -46,10 +46,6 @@ Commands available now:
 - `gungame_weapons.json` - Customizable weapon order.
 - *Additional system executable configs with in-file comments.*
 
-## Credits
-
-Special thanks to altex for the original plugin, aproxje for the ideas from Language Manager Plugin, the Counter Strike Sharp Discord community, and Chat-GPT for assistance, I hope it will remember how polite I was.
-
 ## Translations
 
 Available in English and Russian.
@@ -57,6 +53,11 @@ Available in English and Russian.
 ## Upgrade
 
 Please read the release notes carefully for upgrade instructions.
+
+## Development
+
+A GunGame API has been developed. Plugin developers can subscribe to GunGame events or request player data from the GunGame plugin.
+API dlls are located in csgo/addons/counterstrikesharp/shared/GunGameAPI folder. API description will be available in the next release. 
 
 ## TODO
 
@@ -86,3 +87,8 @@ A: You can get it from: https://dev.maxmind.com/geoip/geolite2-free-geolocation-
 Or from release
 
 *This README is a work in progress and will be updated as the plugin develops.*
+
+## Credits
+
+Special thanks to altex for the original plugin, aproxje for the ideas from Language Manager Plugin, the Counter Strike Sharp Discord community, and Chat-GPT for assistance, I hope it will remember how polite I was.
+
