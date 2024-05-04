@@ -9,7 +9,7 @@ public class GGConfig : BasePluginConfig
     public bool IsPluginEnabled { get; set; } = true;
     /* Random Respawn type 0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns */
     [JsonPropertyName("RespawnByPlugin")]
-    public int RespawnByPlugin { get; set; } = 0;
+    public RespawnType RespawnByPlugin { get; set; } = RespawnType.Disabled;
     /* Remove objectives from map. 0 = Disabled, 1 = BOMB, 2 = HOSTAGE, 3 = BOTH*/
     [JsonPropertyName("RemoveObjectives")]
     public int RemoveObjectives { get; set; } = 3;

@@ -15,6 +15,7 @@ using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
 using GunGame.API;
+using GunGame.Extensions;
 using GunGame.Models;
 using GunGame.Online;
 using GunGame.Stats;
@@ -129,9 +130,10 @@ namespace GunGame
         }
         private bool LoadConfig()
         {
-            Logger.LogInformation("Loading config: csgo/cfg/" + GGVariables.Instance.ActiveConfigFolder + "/gungame.json");
-            string configPath = Server.GameDirectory + "/csgo/cfg/" + GGVariables.Instance.ActiveConfigFolder + 
-            "/gungame.json";
+            string configLocalPath = Path.Combine("csgo/cfg/", GGVariables.Instance.ActiveConfigFolder, "/gungame.json");
+            string configPath = Path.Combine(Server.GameDirectory, configLocalPath);
+
+            Logger.LogInformation($"Loading config: {configLocalPath}");
             try
             {
                 string jsonString = File.ReadAllText(configPath);
@@ -143,43 +145,41 @@ namespace GunGame
                 }
 
                 var cnfg = System.Text.Json.JsonSerializer.Deserialize<GGConfig>(jsonString);
-                if (cnfg != null)
-                {
-                    bool updateRequired = false;
-                    foreach (var property in typeof(GGConfig).GetProperties())
-                    {
-                        var loadedValue = property.GetValue(cnfg);
-                        var defaultValue = property.GetValue(Config);
-
-                        if (loadedValue == null)
-                        {
-                            property.SetValue(cnfg, defaultValue);
-                            updateRequired = true;
-                        }
-                    }
-
-                    if (updateRequired)
-                    {
-                        var updatedJsonContent = System.Text.Json.JsonSerializer.Serialize(cnfg, new JsonSerializerOptions { WriteIndented = true });
-                        File.WriteAllText(configPath, updatedJsonContent);
-                        Logger.LogInformation("[GunGame] Config updated due to missing or obsolete keys.");
-                    }
-                    Config = cnfg;
-                    GGVariables.Instance.WeaponsSkipFastSwitch = Config.FastSwitchSkipWeapons.Split(',')
-                        .Select(weapon => $"weapon_{weapon.Trim()}").ToList();
-                }
-                else
+                if (cnfg == null)
                 {
                     Logger.LogError("Error deserialize config, csgo/cfg/" + GGVariables.Instance.ActiveConfigFolder + "/gungame.json is wrong or empty");
                     return false;
                 }
+
+                bool updateRequired = false;
+                foreach (var property in typeof(GGConfig).GetProperties())
+                {
+                    var loadedValue = property.GetValue(cnfg);
+                    var defaultValue = property.GetValue(Config);
+
+                    if (loadedValue == null)
+                    {
+                        property.SetValue(cnfg, defaultValue);
+                        updateRequired = true;
+                    }
+                }
+
+                if (updateRequired)
+                {
+                    var updatedJsonContent = System.Text.Json.JsonSerializer.Serialize(cnfg, new JsonSerializerOptions { WriteIndented = true });
+                    File.WriteAllText(configPath, updatedJsonContent);
+                    Logger.LogInformation("[GunGame] Config updated due to missing or obsolete keys.");
+                }
+                Config = cnfg;
+                GGVariables.Instance.WeaponsSkipFastSwitch = Config.FastSwitchSkipWeapons.Split(',')
+                    .Select(weapon => $"weapon_{weapon.Trim()}").ToList();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[GunGame] Error reading or deserializing /csgo/cfg/{GGVariables.Instance.ActiveConfigFolder}/gungame.json file: {ex.Message}");
                 return false;
             }
-            SetSpawnRules(Config.RespawnByPlugin);
+            SetSpawnRules((int)Config.RespawnByPlugin);
             return true;
         }
         public PlayerManager playerManager; 
@@ -701,8 +701,8 @@ namespace GunGame
                             GGVariables.Instance.spawnPoints[4].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
                         }
                     }
-                    if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == 4)
-                        Config.RespawnByPlugin = 3;
+                    if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == RespawnType.DmSpawns)
+                        Config.RespawnByPlugin = RespawnType.Both;
                     Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
                 });
                 AddTimer(10.0f, () => {
@@ -3799,62 +3799,50 @@ namespace GunGame
         }
         private void Respawn(CCSPlayerController player, bool spawnpoint = true)
         {
-            if (Config.RespawnByPlugin > 0)
+            if (Config.RespawnByPlugin == RespawnType.Disabled)
+                return;
+
+            if (!IsValidPlayer(player))
+                return;
+
+            CCSPlayerController pl = player;
+            if ((Config.RespawnByPlugin == RespawnType.OnlyT && player.TeamNum != 2)
+                || (Config.RespawnByPlugin == RespawnType.OnlyCT && player.TeamNum != 3)
+                || (player.TeamNum != 2 && player.TeamNum != 3))
             {
-                if (IsValidPlayer(player))
-                {
-                    CCSPlayerController pl = player;
-                    if ((Config.RespawnByPlugin == 1 && player.TeamNum != 2) 
-                        || (Config.RespawnByPlugin == 2 && player.TeamNum != 3) 
-                        || (player.TeamNum != 2 && player.TeamNum != 3))
-                    {
-                        return;
-                    }
-                    AddTimer(1.0f, () => {
-                        if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) return;
-                        double thisDeathTime = Server.EngineTime;
-                        double deltaDeath = thisDeathTime - LastDeathTime[pl.Slot];
-                        LastDeathTime[pl.Slot] = thisDeathTime;
-                        if (deltaDeath < 0)
-                        {
-                            Logger.LogError($"CRITICAL: Delta death is negative for slot {pl.Slot}!!!");
-                            return;
-                        }
-                        SpawnInfo spawn = null!;
-                        if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
-                        {
-                            spawn = GetSuitableSpawnPoint(pl.Slot, pl.TeamNum, Config.SpawnDistance);
-                            if (spawn == null)
-                            {
-                                Logger.LogError($"Spawn point not found for {pl.PlayerName} ({pl.Slot})");
-                            }
-                        }
-                        pl.Respawn();
-                        if (spawn != null)
-                        {
-                            player.PlayerPawn.Value!.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
-                        }
-                    });
-                }
+                return;
             }
-        }
-        private static void Shuffle<T>(IList<T> list)
-        {
-            Random rng = new Random();  
-            int n = list.Count;  
-            while (n > 1) 
-            {  
-                n--;  
-                int k = rng.Next(n + 1);  
-                T value = list[k];  
-                list[k] = list[n];  
-                list[n] = value;  
-            }  
+            AddTimer(1.0f, () =>
+            {
+                if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) return;
+                double thisDeathTime = Server.EngineTime;
+                double deltaDeath = thisDeathTime - LastDeathTime[pl.Slot];
+                LastDeathTime[pl.Slot] = thisDeathTime;
+                if (deltaDeath < 0)
+                {
+                    Logger.LogError($"CRITICAL: Delta death is negative for slot {pl.Slot}!!!");
+                    return;
+                }
+                SpawnInfo spawn = null!;
+                if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
+                {
+                    spawn = GetSuitableSpawnPoint(pl.Slot, pl.TeamNum, Config.SpawnDistance);
+                    if (spawn == null)
+                    {
+                        Logger.LogError($"Spawn point not found for {pl.PlayerName} ({pl.Slot})");
+                    }
+                }
+                pl.Respawn();
+                if (spawn != null)
+                {
+                    player.PlayerPawn.Value!.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                }
+            });
         }
         private SpawnInfo GetSuitableSpawnPoint(int slot, int team, double minDistance = 39.0)
         {
             int spawnType;
-            if (Config.RespawnByPlugin == 4)
+            if (Config.RespawnByPlugin == RespawnType.DmSpawns)
                 spawnType = 4;
             else 
                 spawnType = team;
@@ -3867,9 +3855,9 @@ namespace GunGame
 
             // Shuffle the spawn points list to randomize the selection process
             var shuffledSpawns = new List<SpawnInfo>(GGVariables.Instance.spawnPoints[spawnType]);
-    
+
             // Shuffle the copy
-            Shuffle(shuffledSpawns);
+            shuffledSpawns.Shuffle();
             foreach (var spawn in shuffledSpawns)
             {
                 if (!playerManager.IsPlayerNearby(slot, spawn.Position, minDistance))
@@ -3892,35 +3880,35 @@ namespace GunGame
         {
             if (spawnType == 1)
             {
-                Config.RespawnByPlugin = 1;
+                Config.RespawnByPlugin = RespawnType.OnlyT;
                 Server.ExecuteCommand("mp_respawn_on_death_t 0");
                 Server.ExecuteCommand("mp_respawn_on_death_ct 1");
                 Console.WriteLine("Plugin Respawn T on");
             }
             else if (spawnType == 2)
             {
-                Config.RespawnByPlugin = 2;
+                Config.RespawnByPlugin = RespawnType.OnlyCT;
                 Server.ExecuteCommand("mp_respawn_on_death_t 1");
                 Server.ExecuteCommand("mp_respawn_on_death_ct 0");
                 Console.WriteLine("Plugin Respawn CT on");
             }
             if (spawnType == 3)
             {
-                Config.RespawnByPlugin = 3;
+                Config.RespawnByPlugin = RespawnType.Both;
                 Server.ExecuteCommand("mp_respawn_on_death_t 0");
                 Server.ExecuteCommand("mp_respawn_on_death_ct 0");
                 Console.WriteLine("Plugin Respawn T and CT on");
             }
             else if (spawnType == 4)
             {
-                Config.RespawnByPlugin = 4;
+                Config.RespawnByPlugin = RespawnType.DmSpawns;
                 Server.ExecuteCommand("mp_respawn_on_death_t 0");
                 Server.ExecuteCommand("mp_respawn_on_death_ct 0");
                 Console.WriteLine("Plugin Respawn DM on");
             }
             else if (spawnType == 0)
             {
-                Config.RespawnByPlugin = 0;
+                Config.RespawnByPlugin = RespawnType.Disabled;
                 Server.ExecuteCommand("mp_respawn_on_death_t 1");
                 Server.ExecuteCommand("mp_respawn_on_death_ct 1");
                 Console.WriteLine("Plugin Respawn off");
