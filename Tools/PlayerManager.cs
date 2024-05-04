@@ -6,15 +6,16 @@ using Microsoft.Extensions.Logging;
 
 namespace GunGame.Tools
 {
-    public class PlayerManager
+    public class PlayerManager : CustomManager
     {
-        public PlayerManager(GunGame plugin)
+        public PlayerManager(GunGame plugin) : base(plugin)
         {
-            Plugin = plugin;
+
         }
-        private GunGame Plugin;
+
         private readonly object lockObject = new();
         private readonly Dictionary<int, GGPlayer> playerMap = new();
+
         public GGPlayer? CreatePlayerBySlot(int slot)
         {
             if (slot < 0 || slot > Models.Constants.MaxPlayers)
@@ -38,7 +39,7 @@ namespace GunGame.Tools
                 }
                 else
                 {
-                    Plugin.Logger.LogInformation($"Player slot {slot} - absent PlayerController");
+                    Logger.LogInformation($"Player slot {slot} - absent PlayerController");
                 }
             }
             return player;
@@ -51,7 +52,7 @@ namespace GunGame.Tools
             }
             else
             {
-                Plugin.Logger.LogInformation($"[GUNGAME] Can't find player slot {slot} in playerMap from {name}.");
+                Logger.LogInformation($"[GUNGAME] Can't find player slot {slot} in playerMap from {name}.");
                 var pc = Utilities.GetPlayerFromSlot(slot);
                 if (pc != null)
                 {

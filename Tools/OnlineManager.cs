@@ -4,25 +4,25 @@ using MySqlConnector;
 
 namespace GunGame.Tools
 {
-    public class OnlineManager
+    public class OnlineManager : CustomManager
     {
-        private GunGame Plugin;
+        private readonly DBConfig dbConfig = null!;
         private MySqlConnection _mysqlConn = null!;
-        public DBConfig config = new();
+
         public bool OnlineReportEnable = false;
         public bool SavingPlayer = false;
-        public OnlineManager(DBConfig dBConfig, GunGame plugin)
+
+        public OnlineManager(DBConfig dbConfig, GunGame plugin) : base(plugin)
         {
-            Plugin = plugin;
-            config = dBConfig;
-            if (config != null)
+            this.dbConfig = dbConfig;
+            if (this.dbConfig != null)
             {
-                if (config.DatabaseType.Trim().ToLower() == "mysql")
+                if (this.dbConfig.DatabaseType.Trim().ToLower() == "mysql")
                 {
-                    if (config.DatabaseHost.Length < 1 || config.DatabaseName.Length < 1 || config.DatabaseUser.Length < 1)
+                    if (this.dbConfig.DatabaseHost.Length < 1 || this.dbConfig.DatabaseName.Length < 1 || this.dbConfig.DatabaseUser.Length < 1)
                     {
                         Console.WriteLine("[GunGame_OnlineManager] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
-                        Plugin.Logger.LogInformation("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
+                        Logger.LogInformation("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
                         return;
                     }
                     _ = InitializeDatabaseConnectionAsync();
@@ -35,11 +35,11 @@ namespace GunGame.Tools
             {
                 var builder = new MySqlConnectionStringBuilder
                 {
-                    Server = config.DatabaseHost,
-                    Database = config.DatabaseName,
-                    UserID = config.DatabaseUser,
-                    Password = config.DatabasePassword,
-                    Port = (uint)config.DatabasePort,
+                    Server = dbConfig.DatabaseHost,
+                    Database = dbConfig.DatabaseName,
+                    UserID = dbConfig.DatabaseUser,
+                    Password = dbConfig.DatabasePassword,
+                    Port = (uint)dbConfig.DatabasePort,
                 };
                 _mysqlConn = new MySqlConnection(builder.ConnectionString);
 

@@ -35,6 +35,7 @@ namespace GunGame
         public GunGame (IStringLocalizer<GunGame> localizer)
         {
             playerManager = new(this);
+            spawnManager = new(this);
             _localizer = localizer;
         }
         public readonly IStringLocalizer<GunGame> _localizer;
@@ -179,10 +180,11 @@ namespace GunGame
                 Console.WriteLine($"[GunGame] Error reading or deserializing /csgo/cfg/{GGVariables.Instance.ActiveConfigFolder}/gungame.json file: {ex.Message}");
                 return false;
             }
-            SetSpawnRules((int)Config.RespawnByPlugin);
+            spawnManager.SetSpawnRules((int)Config.RespawnByPlugin);
             return true;
         }
-        public PlayerManager playerManager; 
+        public readonly PlayerManager playerManager; 
+        private readonly SpawnManager spawnManager; 
         public Dictionary<ulong, int> PlayerLevelsBeforeDisconnect = new();
         public Dictionary<ulong, int> PlayerHandicapTimes = new();
         private CounterStrikeSharp.API.Modules.Timers.Timer? warmupTimer = null;
@@ -668,43 +670,7 @@ namespace GunGame
                 {
                     Logger.LogError("Error loading config on Mapstart");
                 }
-                AddTimer(3.6f, () => {
-                    // get map spawn point
-                    GGVariables.Instance.spawnPoints = new();
-                    var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
-                    var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
-                    var dmSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_deathmatch_spawn");
-
-                    GGVariables.Instance.spawnPoints[2] = new ();
-                    GGVariables.Instance.spawnPoints[3] = new ();
-                    GGVariables.Instance.spawnPoints[4] = new ();
-
-                    foreach (var entity in tSpawns)
-                    {
-                        if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                        {
-                            GGVariables.Instance.spawnPoints[2].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                        }
-                    }
-
-                    foreach (var entity in ctSpawns)
-                    {
-                        if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                        {
-                            GGVariables.Instance.spawnPoints[3].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                        }
-                    }
-                    foreach (var entity in dmSpawns)
-                    {
-                        if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                        {
-                            GGVariables.Instance.spawnPoints[4].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                        }
-                    }
-                    if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == RespawnType.DmSpawns)
-                        Config.RespawnByPlugin = RespawnType.Both;
-                    Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
-                });
+                AddTimer(3.6f, spawnManager.InitSpawnPoints);
                 AddTimer(10.0f, () => {
                     LogConnections = true;
                 });
@@ -1138,13 +1104,13 @@ namespace GunGame
                 return HookResult.Continue;
             }
             if (!GGVariables.Instance.IsActive) {
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
             var Victim = playerManager.FindBySlot(VictimController.Slot, "EventPlayerDeathHandler");
             if ( Victim == null ) {
                 Logger.LogError($"EventPlayerDeathHandler: Victim Controller {VictimController.PlayerName} can't find player in player map");
-                Respawn(VictimController, false);
+                spawnManager.RespawnPlayer(VictimController, false);
                 return HookResult.Continue;
             }
             if (Config.ShootKnifeBlock)
@@ -1158,7 +1124,7 @@ namespace GunGame
             /* They change team at round end don't punish them and don't respawn then. */
             if ( !GGVariables.Instance.RoundStarted && !Config.AllowLevelUpAfterRoundEnd )
             {
-                Respawn(VictimController, false);
+                spawnManager.RespawnPlayer(VictimController, false);
                 return HookResult.Continue;
             }
             CCSPlayerController KillerController = null!;
@@ -1194,12 +1160,12 @@ namespace GunGame
                                     VictimController.ChangeTeam(CsTeam.Spectator);
                                     VictimController.PlayerPawn.Value?.CommitSuicide(false, true);
                                     Victim.AfkCount = 0;
-        //                            Respawn(VictimController, false);
+        //                            spawnManager.RespawnPlayer(VictimController, false);
                                 }
                             }
                             else
                             {
-                                Respawn(VictimController);
+                                spawnManager.RespawnPlayer(VictimController);
                             }
                             return HookResult.Continue;
                         }
@@ -1222,7 +1188,7 @@ namespace GunGame
                         ClientSuicide(Victim, Config.WorldspawnSuicide);
 //                        Logger.LogInformation($"{VictimController.PlayerName} killed by {weapon_used}");
                     }
-                    Respawn(VictimController);
+                    spawnManager.RespawnPlayer(VictimController);
                     return HookResult.Continue;
                 }
             }
@@ -1238,7 +1204,7 @@ namespace GunGame
                     ClientSuicide(Victim, Config.CommitSuicide);
 //                    Logger.LogInformation($"{VictimController.PlayerName} killed by {weapon_used} - Commit Suicide");
                 }
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
 
@@ -1246,7 +1212,7 @@ namespace GunGame
             if (KillerController == null)
             {
                 Logger.LogInformation($"******** {VictimController.PlayerName} killed by Killer == null");
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
             if (KillerController.DesignerName == "cs_player_controller")
@@ -1261,14 +1227,14 @@ namespace GunGame
             if (Killer == null)
             {
                 Logger.LogError($"******** {VictimController.PlayerName} killed not by player in player map");
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
 
             if (!TryGetWeaponInfo(weapon_used, out WeaponInfo usedWeaponInfo))
             {
                 Logger.LogError($"[GUNGAME] **** Cant get weapon info for weapon used in kill {weapon_used} by {Killer.PlayerName}");
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
 
@@ -1278,7 +1244,7 @@ namespace GunGame
                 {
                     ReloadActiveWeapon(Killer, usedWeaponInfo.Index);
                 }
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
 
@@ -1294,7 +1260,7 @@ namespace GunGame
             if (!AcceptKill)
             {
                 Logger.LogInformation($"********* Killer {Killer.PlayerName} - victim {Victim.PlayerName} kill is not accepted");
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
                 
@@ -1363,7 +1329,7 @@ namespace GunGame
                 if (stop_further_processing)
                 {    
                     ReloadActiveWeapon(Killer, usedWeaponInfo.Index);
-                    Respawn(VictimController);
+                    spawnManager.RespawnPlayer(VictimController);
                     return HookResult.Continue;
                 } 
                 if ( TeamKill )
@@ -1380,7 +1346,7 @@ namespace GunGame
                     level = ChangeLevel(Killer, -Config.TkLooseLevel, false, VictimController);
                     if ( level == oldLevel )
                     {
-                        Respawn(VictimController);
+                        spawnManager.RespawnPlayer(VictimController);
                         return HookResult.Continue;
                     }
 
@@ -1388,7 +1354,7 @@ namespace GunGame
                     {
                         GiveNextWeapon(Killer.Slot);
                     }
-                    Respawn(VictimController);
+                    spawnManager.RespawnPlayer(VictimController);
                     return HookResult.Continue;
                 }
             } 
@@ -1422,7 +1388,7 @@ namespace GunGame
 
             if ( (Config.MaxLevelPerRound > 0) && Killer.CurrentLevelPerRound >= Config.MaxLevelPerRound )
             {
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
 
@@ -1490,13 +1456,13 @@ namespace GunGame
     // you can't pass a grenade with a knife
                 if ( follow && !Config.KnifeProHE && Killer.LevelWeapon.LevelIndex == SpecialWeapon.HegrenadeLevelIndex ) 
                 {
-                    Respawn(VictimController);
+                    spawnManager.RespawnPlayer(VictimController);
                     return HookResult.Continue;
                 }
     // you can't pass the taser with a knife
                 if (follow && Killer.LevelWeapon.LevelIndex == SpecialWeapon.TaserLevelIndex) 
                 {
-                    Respawn(VictimController);
+                    spawnManager.RespawnPlayer(VictimController);
                     return HookResult.Continue;
                 }
     // You can't get past Molotov with a knife
@@ -1509,7 +1475,7 @@ namespace GunGame
                     oldLevelKiller = level;
                     level = ChangeLevel(Killer, 1, true, VictimController);
                     if ( oldLevelKiller == level ) {
-                        Respawn(VictimController);
+                        spawnManager.RespawnPlayer(VictimController);
                         return HookResult.Continue;
                     }
                     PrintLeaderToChat(Killer, oldLevelKiller, level);
@@ -1519,7 +1485,7 @@ namespace GunGame
                         GiveNextWeapon(Killer.Slot, true); // true - level up with knife
                     }
                     CheckForTripleLevel(Killer);
-                    Respawn(VictimController);
+                    spawnManager.RespawnPlayer(VictimController);
                     return HookResult.Continue;
                 }
             }
@@ -1540,7 +1506,7 @@ namespace GunGame
                         LevelUpWithPhysics = true;
                     } else 
                     {
-                        Respawn(VictimController);
+                        spawnManager.RespawnPlayer(VictimController);
                         return HookResult.Continue;
                     }
                 } else {
@@ -1556,7 +1522,7 @@ namespace GunGame
                         LevelUpWithPhysics = true;
                     } else 
                     {
-                        Respawn(VictimController);
+                        spawnManager.RespawnPlayer(VictimController);
                         return HookResult.Continue;
                     }
                 }
@@ -1581,7 +1547,7 @@ namespace GunGame
 //                        Logger.LogInformation($"************* killer {Killer.PlayerName} victim {Victim.PlayerName} - point is not accepted ********");
                         Console.WriteLine("************* Point is not accepted ********");
                         Killer.CurrentKillsPerWeap--;
-                        Respawn(VictimController);
+                        spawnManager.RespawnPlayer(VictimController);
                         return HookResult.Continue;
                     }
         //  **************************************** check logic
@@ -1618,7 +1584,7 @@ namespace GunGame
                         {
                             ReloadActiveWeapon(Killer, Killer.LevelWeapon.Index);
                         }
-                        Respawn(VictimController);
+                        spawnManager.RespawnPlayer(VictimController);
                         return HookResult.Continue;
                     }
                 }
@@ -1639,7 +1605,7 @@ namespace GunGame
             level = ChangeLevel(Killer, 1, false, VictimController);
             if ( oldLevelKiller == level )
             {
-                Respawn(VictimController);
+                spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
             }
             Killer.CurrentLevelPerRound++;
@@ -1650,7 +1616,7 @@ namespace GunGame
                 GiveNextWeapon(Killer.Slot, usedWeaponInfo.LevelIndex == SpecialWeapon.KnifeLevelIndex);
             }
             CheckForTripleLevel(Killer);
-            Respawn(VictimController);
+            spawnManager.RespawnPlayer(VictimController);
             return HookResult.Continue;
         }
         private HookResult EventPlayerHurtHandler(EventPlayerHurt eventInfo, GameEventInfo gameEventInfo)
@@ -1776,7 +1742,7 @@ namespace GunGame
                 {
                     AddTimer (0.4f, () => {
                         if (IsValidPlayer(playerController))
-                            Respawn(playerController);
+                            spawnManager.RespawnPlayer(playerController);
                     });
                 }
                 if (@event.Isbot || !(newTeam == 2 || newTeam == 3 || oldTeam == 2 || oldTeam == 3))
@@ -3730,7 +3696,7 @@ namespace GunGame
             {
                 if (intValue == 4 && GGVariables.Instance.spawnPoints[4].Count < 1)
                     intValue = 3;
-                SetSpawnRules(intValue);
+                spawnManager.SetSpawnRules(intValue);
             }
             else
             {
@@ -3796,133 +3762,6 @@ namespace GunGame
                 }
             }
             return;
-        }
-        private void Respawn(CCSPlayerController player, bool spawnpoint = true)
-        {
-            if (Config.RespawnByPlugin == RespawnType.Disabled)
-                return;
-
-            if (!IsValidPlayer(player))
-                return;
-
-            CCSPlayerController pl = player;
-            if ((Config.RespawnByPlugin == RespawnType.OnlyT && player.TeamNum != 2)
-                || (Config.RespawnByPlugin == RespawnType.OnlyCT && player.TeamNum != 3)
-                || (player.TeamNum != 2 && player.TeamNum != 3))
-            {
-                return;
-            }
-            AddTimer(1.0f, () =>
-            {
-                if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) 
-                    return;
-
-                double thisDeathTime = Server.EngineTime;
-                double deltaDeath = thisDeathTime - LastDeathTime[pl.Slot];
-                LastDeathTime[pl.Slot] = thisDeathTime;
-                if (deltaDeath < 0)
-                {
-                    Logger.LogError($"CRITICAL: Delta death is negative for slot {pl.Slot}!!!");
-                    return;
-                }
-                SpawnInfo spawn = null!;
-                if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
-                {
-                    spawn = GetSuitableSpawnPoint(pl.Slot, pl.TeamNum, Config.SpawnDistance);
-                    if (spawn == null)
-                    {
-                        Logger.LogError($"Spawn point not found for {pl.PlayerName} ({pl.Slot})");
-                    }
-                }
-                pl.Respawn();
-                if (spawn != null)
-                {
-                    player.PlayerPawn.Value!.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
-                }
-            });
-        }
-        private SpawnInfo GetSuitableSpawnPoint(int slot, int team, double minDistance = 39.0)
-        {
-            int spawnType;
-            if (Config.RespawnByPlugin == RespawnType.DmSpawns)
-                spawnType = 4;
-            else 
-                spawnType = team;
-
-            if (!GGVariables.Instance.spawnPoints.TryGetValue(spawnType, out List<SpawnInfo>? value))
-            {
-                Logger.LogError($"SpawnPoints not ContainsKey {spawnType}");
-                return null!;
-            }
-
-            // Shuffle the spawn points list to randomize the selection process
-            var shuffledSpawns = new List<SpawnInfo>(value);
-
-            // Shuffle the copy
-            shuffledSpawns.Shuffle();
-            foreach (var spawn in shuffledSpawns)
-            {
-                if (!playerManager.IsPlayerNearby(slot, spawn.Position, minDistance))
-                {
-                    return spawn;
-                }
-                    
-/*                if (GGVariables.Instance.Position[slot] != spawn.Position)
-                {
-                    // Found a suitable spawn point
-                    GGVariables.Instance.Position[slot] = spawn.Position;
-                    return spawn;
-                } */
-            }
-            Logger.LogInformation($"No suitable spawn points for player {slot}");
-            // No suitable spawn point found
-            return null!;
-        }
-
-
-
-        private void SetSpawnRules(int spawnType)
-        {
-            if (spawnType == 1)
-            {
-                Config.RespawnByPlugin = RespawnType.OnlyT;
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
-                Console.WriteLine("Plugin Respawn T on");
-            }
-            else if (spawnType == 2)
-            {
-                Config.RespawnByPlugin = RespawnType.OnlyCT;
-                Server.ExecuteCommand("mp_respawn_on_death_t 1");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-                Console.WriteLine("Plugin Respawn CT on");
-            }
-            if (spawnType == 3)
-            {
-                Config.RespawnByPlugin = RespawnType.Both;
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-                Console.WriteLine("Plugin Respawn T and CT on");
-            }
-            else if (spawnType == 4)
-            {
-                Config.RespawnByPlugin = RespawnType.DmSpawns;
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-                Console.WriteLine("Plugin Respawn DM on");
-            }
-            else if (spawnType == 0)
-            {
-                Config.RespawnByPlugin = RespawnType.Disabled;
-                Server.ExecuteCommand("mp_respawn_on_death_t 1");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
-                Console.WriteLine("Plugin Respawn off");
-            }
-            else
-            {
-                Console.WriteLine($"Error set Respawn Rules with code {spawnType}");
-                Logger.LogError($"Error set Respawn Rules with code {spawnType}");
-            }
         }
         public List<CCSPlayerController> GetValidPlayers()
 		{

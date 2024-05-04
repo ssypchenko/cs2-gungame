@@ -13,30 +13,29 @@ using System.Text;
 
 namespace GunGame.Tools
 {
-    public class StatsManager
+    public class StatsManager : CustomManager
     {
-        private GunGame Plugin;
-        //        private SqliteConnection _sqliteConn = null!;
-        //        private MySqlConnection _mysqlConn = null!;
         private bool _isDatabaseReady = false;
-        private CancellationTokenSource _cts = new CancellationTokenSource();
         private int checkTries = 10;
-        public DBConfig config = null!;
-        public DatabaseType DatabaseType { get; set; }
-        private MySqlConnectionStringBuilder _builder = null!;
         private string _dbFilePath = "";
+
+        private readonly DBConfig dbConfig = null!;
+        private readonly MySqlConnectionStringBuilder _builder = null!;
+        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+
+        public DatabaseType DatabaseType { get; set; }
         public bool SavingPlayer = false;
         public bool UnsuccessfulSave = false;
-        public StatsManager(DBConfig dBConfig, GunGame plugin)
+
+        public StatsManager(DBConfig dbConfig, GunGame plugin) : base(plugin)
         {
-            Plugin = plugin;
-            config = dBConfig;
-            if (config != null)
+            this.dbConfig = dbConfig;
+            if (this.dbConfig != null)
             {
-                if (config.DatabaseType.Trim().ToLower() == "mysql")
+                if (this.dbConfig.DatabaseType.Trim().ToLower() == "mysql")
                 {
                     DatabaseType = DatabaseType.MySQL;
-                    if (config.DatabaseHost.Length < 1 || config.DatabaseName.Length < 1 || config.DatabaseUser.Length < 1)
+                    if (this.dbConfig.DatabaseHost.Length < 1 || this.dbConfig.DatabaseName.Length < 1 || this.dbConfig.DatabaseUser.Length < 1)
                     {
                         Console.WriteLine("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
                         Plugin.Logger.LogInformation("[GunGame_Stats] InitializeDatabaseConnection: Error in DataBase config. DatabaseHost, DatabaseName and DatabaseUser should be set. Continue without GunGame statistics");
@@ -44,17 +43,17 @@ namespace GunGame.Tools
                     }
                     _builder = new MySqlConnectionStringBuilder
                     {
-                        Server = config.DatabaseHost,
-                        Database = config.DatabaseName,
-                        UserID = config.DatabaseUser,
-                        Password = config.DatabasePassword,
-                        Port = (uint)config.DatabasePort,
+                        Server = this.dbConfig.DatabaseHost,
+                        Database = this.dbConfig.DatabaseName,
+                        UserID = this.dbConfig.DatabaseUser,
+                        Password = this.dbConfig.DatabasePassword,
+                        Port = (uint)this.dbConfig.DatabasePort,
                     };
                 }
-                else if (config.DatabaseType.Trim().ToLower() == "sqlite")
+                else if (this.dbConfig.DatabaseType.Trim().ToLower() == "sqlite")
                 {
                     DatabaseType = DatabaseType.SQLite;
-                    _dbFilePath = Server.GameDirectory + config.DatabaseFilePath;
+                    _dbFilePath = Server.GameDirectory + this.dbConfig.DatabaseFilePath;
                 }
                 else
                 {
@@ -408,7 +407,7 @@ namespace GunGame.Tools
             string ipcountrycode = "";
             if (player.IP.Length > 0)
             {
-                string dbFilePath = Server.GameDirectory + config.GeoDatabaseFilePath;
+                string dbFilePath = Server.GameDirectory + dbConfig.GeoDatabaseFilePath;
                 if (File.Exists(dbFilePath))
                 {
                     using var reader = new DatabaseReader(dbFilePath);
