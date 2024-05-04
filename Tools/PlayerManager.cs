@@ -4,11 +4,11 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
 
-namespace GunGame
+namespace GunGame.Tools
 {
     public class PlayerManager
     {
-        public PlayerManager (GunGame plugin)
+        public PlayerManager(GunGame plugin)
         {
             Plugin = plugin;
         }
@@ -32,7 +32,7 @@ namespace GunGame
             if (player.Index == -1)
             {
                 var pc = Utilities.GetPlayerFromSlot(slot);
-                if (pc != null && pc.IsValid) 
+                if (pc != null && pc.IsValid)
                 {
                     player.UpdatePlayerController(pc);
                 }
@@ -43,9 +43,10 @@ namespace GunGame
             }
             return player;
         }
-        public GGPlayer? FindBySlot (int slot, string name = "")
+        public GGPlayer? FindBySlot(int slot, string name = "")
         {
-            if (playerMap.TryGetValue(slot, out GGPlayer? player)) {
+            if (playerMap.TryGetValue(slot, out GGPlayer? player))
+            {
                 return player;
             }
             else
@@ -63,13 +64,13 @@ namespace GunGame
         {
             return playerMap.TryGetValue(slot, out GGPlayer? player);
         }
-        public GGPlayer? FindLeader ()
+        public GGPlayer? FindLeader()
         {
             int leaderId = -1;
             uint leaderLevel = 0;
             foreach (var player in playerMap)
             {
-                if ( player.Value.Level > leaderLevel )
+                if (player.Value.Level > leaderLevel)
                 {
                     leaderLevel = player.Value.Level;
                     leaderId = player.Key;
@@ -80,11 +81,12 @@ namespace GunGame
             else
                 return FindBySlot(leaderId, "FindLeader");
         }
-        public void ForgetPlayer (int slot)
+        public void ForgetPlayer(int slot)
         {
             lock (lockObject)
             {
-                if (playerMap.TryGetValue(slot, out GGPlayer? player)) {
+                if (playerMap.TryGetValue(slot, out GGPlayer? player))
+                {
                     playerMap.Remove(slot);
                 }
             }
@@ -104,14 +106,14 @@ namespace GunGame
                 var pc = Utilities.GetPlayerFromSlot(player.Value.Slot);
                 if (pc != null && Plugin.IsValidPlayer(pc))
                 {
-                    if (pc.PlayerPawn != null && pc.Pawn != null && 
-                        pc.PlayerPawn.IsValid && pc.PlayerPawn.Value != null && pc.Pawn.IsValid && pc.Pawn.Value != null &&  
+                    if (pc.PlayerPawn != null && pc.Pawn != null &&
+                        pc.PlayerPawn.IsValid && pc.PlayerPawn.Value != null && pc.Pawn.IsValid && pc.Pawn.Value != null &&
                         pc.PlayerPawn.Value.AbsOrigin != null)
                     {
-/*                        if (IsPlayerNearEntity(spawn, pc.PlayerPawn.Value.AbsOrigin, minDistance))
-                        {
-                            return true;
-                        }*/
+                        /*                        if (IsPlayerNearEntity(spawn, pc.PlayerPawn.Value.AbsOrigin, minDistance))
+                                                {
+                                                    return true;
+                                                }*/
                         if (pc.Pawn.Value.LifeState != (byte)LifeState_t.LIFE_ALIVE)
                         {
                             continue;
@@ -142,7 +144,7 @@ namespace GunGame
                                     (player.Z - entity.Z) * (player.Z - entity.Z);
 
             // Compare squared distances (since sqrt is monotonic, the comparison is equivalent)
-            return squaredDistance <= (minDistance * minDistance);
+            return squaredDistance <= minDistance * minDistance;
         }
         private static double PlayerDistance(Vector entity, Vector player)
         {
@@ -157,4 +159,4 @@ namespace GunGame
     }
 }
 // Colors Available = "{default} {white} {darkred} {green} {lightyellow}" "{lightblue} {olive} {lime} {red} {lightpurple}"
-                      //"{purple} {grey} {yellow} {gold} {silver}" "{blue} {darkblue} {bluegrey} {magenta} {lightred}" "{orange}"
+//"{purple} {grey} {yellow} {gold} {silver}" "{blue} {darkblue} {bluegrey} {magenta} {lightred}" "{orange}"

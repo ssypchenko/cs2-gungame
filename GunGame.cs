@@ -17,8 +17,8 @@ using CounterStrikeSharp.API.Modules.Utils;
 using GunGame.API;
 using GunGame.Extensions;
 using GunGame.Models;
-using GunGame.Online;
 using GunGame.Stats;
+using GunGame.Tools;
 using GunGame.Variables;
 using Microsoft.Extensions.Localization;
 using Microsoft.Extensions.Logging;
@@ -3814,7 +3814,9 @@ namespace GunGame
             }
             AddTimer(1.0f, () =>
             {
-                if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) return;
+                if (!IsValidPlayer(pl) || pl.PlayerPawn == null || !pl.PlayerPawn.IsValid || pl.PlayerPawn.Value == null) 
+                    return;
+
                 double thisDeathTime = Server.EngineTime;
                 double deltaDeath = thisDeathTime - LastDeathTime[pl.Slot];
                 LastDeathTime[pl.Slot] = thisDeathTime;
@@ -3847,14 +3849,14 @@ namespace GunGame
             else 
                 spawnType = team;
 
-            if (!GGVariables.Instance.spawnPoints.ContainsKey(spawnType))
+            if (!GGVariables.Instance.spawnPoints.TryGetValue(spawnType, out List<SpawnInfo>? value))
             {
                 Logger.LogError($"SpawnPoints not ContainsKey {spawnType}");
                 return null!;
             }
 
             // Shuffle the spawn points list to randomize the selection process
-            var shuffledSpawns = new List<SpawnInfo>(GGVariables.Instance.spawnPoints[spawnType]);
+            var shuffledSpawns = new List<SpawnInfo>(value);
 
             // Shuffle the copy
             shuffledSpawns.Shuffle();
@@ -3876,6 +3878,9 @@ namespace GunGame
             // No suitable spawn point found
             return null!;
         }
+
+
+
         private void SetSpawnRules(int spawnType)
         {
             if (spawnType == 1)

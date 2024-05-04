@@ -2,22 +2,22 @@
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
 
-namespace GunGame.Online
+namespace GunGame.Tools
 {
     public class OnlineManager
-	{
+    {
         private GunGame Plugin;
         private MySqlConnection _mysqlConn = null!;
         public DBConfig config = new();
         public bool OnlineReportEnable = false;
         public bool SavingPlayer = false;
-		public OnlineManager(DBConfig dBConfig, GunGame plugin) 
-		{
+        public OnlineManager(DBConfig dBConfig, GunGame plugin)
+        {
             Plugin = plugin;
             config = dBConfig;
             if (config != null)
             {
-                if (config.DatabaseType.Trim().ToLower() == "mysql") 
+                if (config.DatabaseType.Trim().ToLower() == "mysql")
                 {
                     if (config.DatabaseHost.Length < 1 || config.DatabaseName.Length < 1 || config.DatabaseUser.Length < 1)
                     {
@@ -28,12 +28,12 @@ namespace GunGame.Online
                     _ = InitializeDatabaseConnectionAsync();
                 }
             }
-		}
+        }
         private async Task InitializeDatabaseConnectionAsync()
         {
             try
             {
-                var builder = new MySqlConnector.MySqlConnectionStringBuilder
+                var builder = new MySqlConnectionStringBuilder
                 {
                     Server = config.DatabaseHost,
                     Database = config.DatabaseName,
@@ -42,7 +42,7 @@ namespace GunGame.Online
                     Port = (uint)config.DatabasePort,
                 };
                 _mysqlConn = new MySqlConnection(builder.ConnectionString);
-                
+
                 // Asynchronously open the MySQL connection
                 await _mysqlConn.OpenAsync();
                 Console.WriteLine("[GunGame_Online] Connection to database established successfully.");
@@ -51,7 +51,7 @@ namespace GunGame.Online
                 await _mysqlConn.CloseAsync();
 
                 OnlineReportEnable = true;
-            } 
+            }
             catch (Exception ex)
             {
                 Console.WriteLine($"[GunGame_Online - FATAL] InitializeDatabaseConnection: Database connection error: {ex.Message}, working without online reports");
@@ -59,7 +59,7 @@ namespace GunGame.Online
         }
 
         public async Task SavePlayerData(GGPlayer player, string team)
-		{
+        {
             if (!OnlineReportEnable)
                 return;
             int attempts = 0;
@@ -76,7 +76,7 @@ namespace GunGame.Online
 
             if (player == null || player.SavedSteamID == 0) return;
             SavingPlayer = true;
-			string safePlayerName = System.Net.WebUtility.HtmlEncode(player.PlayerName);
+            string safePlayerName = System.Net.WebUtility.HtmlEncode(player.PlayerName);
 
 
             var sql = "INSERT INTO `realtime_stats` (`id`, `nickname`, `level`, `team`) " +
@@ -105,7 +105,7 @@ namespace GunGame.Online
                 await _mysqlConn.CloseAsync();
             }
             SavingPlayer = false;
-		}
+        }
         public async Task RemovePlayerData(GGPlayer player)
         {
             if (!OnlineReportEnable)
@@ -130,7 +130,7 @@ namespace GunGame.Online
                 using (var command = new MySqlCommand(query, _mysqlConn))
                 {
                     command.Parameters.AddWithValue("@authid", player.SavedSteamID);
-                        await command.ExecuteNonQueryAsync();
+                    await command.ExecuteNonQueryAsync();
                 }
             }
             catch (Exception ex)
@@ -183,6 +183,6 @@ namespace GunGame.Online
             {
                 await _mysqlConn.CloseAsync();
             }
-        }           
+        }
     }
 }
