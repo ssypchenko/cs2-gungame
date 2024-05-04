@@ -92,51 +92,45 @@ namespace GunGame.Tools
                 }
             }
         }
-        public bool IsPlayerNearby(int slot, Vector spawn, double minDistance = 39.0)
+
+        public double GetDistanceToClosestPlayer(int slot, Vector spawn)
         {
-            if (playerMap.Count == 1)
-                return false;
             double minD = 10000.0;
-            double dist;
-            string closest = "no";
+            double dist = minD;
+
+            if (playerMap.Count <= 1)
+                return dist;
 
             foreach (var player in playerMap)
             {
                 if (player.Value.Slot == slot)
                     continue;
+
                 var pc = Utilities.GetPlayerFromSlot(player.Value.Slot);
-                if (pc != null && Plugin.IsValidPlayer(pc))
+                if (pc == null || !Plugin.IsValidPlayer(pc))
+                    continue;
+
+                if (pc.PlayerPawn != null && pc.Pawn != null &&
+                    pc.PlayerPawn.IsValid && pc.PlayerPawn.Value != null && pc.Pawn.IsValid && pc.Pawn.Value != null &&
+                    pc.PlayerPawn.Value.AbsOrigin != null)
                 {
-                    if (pc.PlayerPawn != null && pc.Pawn != null &&
-                        pc.PlayerPawn.IsValid && pc.PlayerPawn.Value != null && pc.Pawn.IsValid && pc.Pawn.Value != null &&
-                        pc.PlayerPawn.Value.AbsOrigin != null)
-                    {
-                        /*                        if (IsPlayerNearEntity(spawn, pc.PlayerPawn.Value.AbsOrigin, minDistance))
-                                                {
-                                                    return true;
-                                                }*/
-                        if (pc.Pawn.Value.LifeState != (byte)LifeState_t.LIFE_ALIVE)
-                        {
-                            continue;
-                        }
-                        dist = PlayerDistance(spawn, pc.PlayerPawn.Value.AbsOrigin);
-                        if (dist < minD)
-                        {
-                            minD = dist;
-                            closest = pc.PlayerName;
-                        }
-                    }
+                    if (pc.Pawn.Value.LifeState != (byte)LifeState_t.LIFE_ALIVE)
+                        continue;
+
+                    dist = PlayerDistance(spawn, pc.PlayerPawn.Value.AbsOrigin);
+                    if (dist < minD)
+                        minD = dist;
                 }
             }
-            if (minD < minDistance)
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
+
+            return dist;
         }
+
+        public bool IsPlayerNearby(int slot, Vector spawn, double minDistance = 39.0)
+        {
+            return GetDistanceToClosestPlayer(slot, spawn) < minDistance;
+        }
+
         private static bool IsPlayerNearEntity(Vector entity, Vector player, double minDistance = 39.0)
         {
             // Calculate the squared distance to avoid the square root for performance reasons

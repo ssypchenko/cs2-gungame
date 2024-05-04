@@ -7,5 +7,7 @@
         OnlyCT = 2,
         Both = 3,
         DmSpawns = 4,
+        AllRandom = 5,
+        AllFarthest = 6,
     }
 }

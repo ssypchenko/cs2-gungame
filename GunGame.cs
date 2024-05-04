@@ -42,7 +42,7 @@ namespace GunGame
         public PlayerLanguageManager playerLanguageManager = new ();
 
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.1.0";
+        public override string ModuleVersion => "v1.2.0-alpha.0";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
 
@@ -131,7 +131,7 @@ namespace GunGame
         }
         private bool LoadConfig()
         {
-            string configLocalPath = Path.Combine("csgo/cfg/", GGVariables.Instance.ActiveConfigFolder, "/gungame.json");
+            string configLocalPath = Path.Combine("csgo/cfg", GGVariables.Instance.ActiveConfigFolder, "gungame.json");
             string configPath = Path.Combine(Server.GameDirectory, configLocalPath);
 
             Logger.LogInformation($"Loading config: {configLocalPath}");
@@ -141,14 +141,14 @@ namespace GunGame
 
                 if (string.IsNullOrEmpty(jsonString))
                 {
-                    Logger.LogError("Error loading config: csgo/cfg/" + GGVariables.Instance.ActiveConfigFolder + "/gungame.json is wrong or empty");
+                    Logger.LogError($"Error loading config: {configLocalPath} is wrong or empty");
                     return false;
                 }
 
                 var cnfg = System.Text.Json.JsonSerializer.Deserialize<GGConfig>(jsonString);
                 if (cnfg == null)
                 {
-                    Logger.LogError("Error deserialize config, csgo/cfg/" + GGVariables.Instance.ActiveConfigFolder + "/gungame.json is wrong or empty");
+                    Logger.LogError($"Error deserialize config, {configLocalPath} is wrong or empty");
                     return false;
                 }
 
@@ -177,7 +177,7 @@ namespace GunGame
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[GunGame] Error reading or deserializing /csgo/cfg/{GGVariables.Instance.ActiveConfigFolder}/gungame.json file: {ex.Message}");
+                Console.WriteLine($"[GunGame] Error reading or deserializing {configLocalPath} file: {ex.Message}");
                 return false;
             }
             spawnManager.SetSpawnRules((int)Config.RespawnByPlugin);

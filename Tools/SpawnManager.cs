@@ -100,20 +100,46 @@ namespace GunGame.Tools
                 }
             });
         }
+
         private SpawnInfo GetSuitableSpawnPoint(int slot, int team, double minDistance = 39.0)
         {
-            int spawnType;
-            if (Config.RespawnByPlugin == RespawnType.DmSpawns)
-                spawnType = 4;
-            else
-                spawnType = team;
-
-            if (!GGVariables.Instance.spawnPoints.TryGetValue(spawnType, out List<SpawnInfo>? value))
+            List<SpawnInfo>? spawns;
+            if (Config.RespawnByPlugin is RespawnType.AllRandom or RespawnType.AllFarthest)
             {
-                Logger.LogError($"SpawnPoints not ContainsKey {spawnType}");
-                return null!;
+                spawns = GGVariables.Instance.spawnPoints
+                    .SelectMany(t => t.Value)
+                    .ToList();
+            }
+            else
+            {
+                int spawnType;
+                if (Config.RespawnByPlugin == RespawnType.DmSpawns)
+                    spawnType = 4;
+                else
+                    spawnType = team;
+
+                if (!GGVariables.Instance.spawnPoints.TryGetValue(spawnType, out spawns))
+                {
+                    Logger.LogError($"SpawnPoints not ContainsKey {spawnType}");
+                    return null!;
+                }
             }
 
+            SpawnInfo result;
+
+            if (Config.RespawnByPlugin == RespawnType.AllFarthest)
+                result = GetFarthestSpawnPoint(slot, spawns);
+            else
+                result = GetSuitableSpawnPoint(slot, minDistance, spawns);
+
+            if (result == null)
+                Logger.LogInformation($"No suitable spawn points for player {slot}");
+
+            return result!;
+        }
+
+        private SpawnInfo GetSuitableSpawnPoint(int slot, double minDistance, List<SpawnInfo> value)
+        {
             // Shuffle the spawn points list to randomize the selection process
             var shuffledSpawns = new List<SpawnInfo>(value);
 
@@ -125,62 +151,78 @@ namespace GunGame.Tools
                 {
                     return spawn;
                 }
-
-                /*                if (GGVariables.Instance.Position[slot] != spawn.Position)
-                                {
-                                    // Found a suitable spawn point
-                                    GGVariables.Instance.Position[slot] = spawn.Position;
-                                    return spawn;
-                                } */
             }
-            Logger.LogInformation($"No suitable spawn points for player {slot}");
-            // No suitable spawn point found
+
             return null!;
         }
+        
+        private SpawnInfo GetFarthestSpawnPoint(int slot, List<SpawnInfo> value)
+        {
+            // Shuffle the spawn points list to randomize the selection process
+            var shuffledSpawns = new List<SpawnInfo>(value);
 
+            // Shuffle the copy
+            shuffledSpawns.Shuffle();
 
+            SpawnInfo result = null!;
+            double distanceToResultPoint = 0;
+
+            foreach (var spawn in shuffledSpawns)
+            {
+                var distance = PlayerManager.GetDistanceToClosestPlayer(slot, spawn.Position);
+                if (distance <= distanceToResultPoint)
+                    continue;
+
+                distanceToResultPoint = distance;
+                result = spawn;
+            }
+
+            return result;
+        }
 
         public void SetSpawnRules(int spawnType)
         {
-            if (spawnType == 1)
-            {
-                Config.RespawnByPlugin = RespawnType.OnlyT;
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
-                Console.WriteLine("Plugin Respawn T on");
-            }
-            else if (spawnType == 2)
-            {
-                Config.RespawnByPlugin = RespawnType.OnlyCT;
-                Server.ExecuteCommand("mp_respawn_on_death_t 1");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-                Console.WriteLine("Plugin Respawn CT on");
-            }
-            if (spawnType == 3)
-            {
-                Config.RespawnByPlugin = RespawnType.Both;
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-                Console.WriteLine("Plugin Respawn T and CT on");
-            }
-            else if (spawnType == 4)
-            {
-                Config.RespawnByPlugin = RespawnType.DmSpawns;
-                Server.ExecuteCommand("mp_respawn_on_death_t 0");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
-                Console.WriteLine("Plugin Respawn DM on");
-            }
-            else if (spawnType == 0)
-            {
-                Config.RespawnByPlugin = RespawnType.Disabled;
-                Server.ExecuteCommand("mp_respawn_on_death_t 1");
-                Server.ExecuteCommand("mp_respawn_on_death_ct 1");
-                Console.WriteLine("Plugin Respawn off");
-            }
+            if (typeof(RespawnType).IsEnumDefined(spawnType))
+                Config.RespawnByPlugin = (RespawnType)spawnType;
             else
             {
                 Console.WriteLine($"Error set Respawn Rules with code {spawnType}");
                 Logger.LogError($"Error set Respawn Rules with code {spawnType}");
+
+                return;
+            }
+
+            if (Config.RespawnByPlugin is RespawnType.OnlyT or >= RespawnType.Both)
+                Server.ExecuteCommand("mp_respawn_on_death_t 0");
+            
+            if (Config.RespawnByPlugin is RespawnType.OnlyCT or >= RespawnType.Both)
+                Server.ExecuteCommand("mp_respawn_on_death_ct 0");
+
+            switch (Config.RespawnByPlugin)
+            {
+                case RespawnType.OnlyT:
+                    Console.WriteLine("Plugin Respawn T on");
+                    break;
+                case RespawnType.OnlyCT:
+                    Console.WriteLine("Plugin Respawn CT on");
+                    break;
+                case RespawnType.Both:
+                    Console.WriteLine("Plugin Respawn T and CT on");
+                    break;
+                case RespawnType.DmSpawns:
+                    Console.WriteLine("Plugin Respawn DM on");
+                    break;
+                case RespawnType.AllRandom:
+                    Console.WriteLine("Plugin Respawn all randomly");
+                    break;
+                case RespawnType.AllFarthest:
+                    Console.WriteLine("Plugin Respawn farthest from all");
+                    break;
+                default:
+                    Server.ExecuteCommand("mp_respawn_on_death_t 1");
+                    Server.ExecuteCommand("mp_respawn_on_death_ct 1");
+                    Console.WriteLine("Plugin Respawn off");
+                    break;
             }
         }
     }
