@@ -1,7 +1,7 @@
 using CounterStrikeSharp.API.Core;
 using System.Text.Json.Serialization;
 
-namespace GunGame;
+namespace GunGame.Models;
 
 public class GGConfig : BasePluginConfig
 {
@@ -65,7 +65,7 @@ public class GGConfig : BasePluginConfig
     /* Start voting if leader level is less maximum level by this value */
     [JsonPropertyName("VoteLevelLessWeaponCount")]
     public int VoteLevelLessWeaponCount { get; set; } = 0;
-/*    public int? ObjectiveBonus { get; set; } */
+    /*    public int? ObjectiveBonus { get; set; } */
 
     /** 
     * Level down player if they kill themself by WorldSpawn Suicide.
@@ -123,7 +123,7 @@ public class GGConfig : BasePluginConfig
     /* Molotov Pro allow stealing a player level by killing them with a molotov */
     [JsonPropertyName("MolotovPro")]
     public bool MolotovPro { get; set; } = true;
-    
+
     /* The minimum level that a player must be at before another player can knife steal from. Requires KnifePro on */
     [JsonPropertyName("KnifeProMinLevel")]
     public int KnifeProMinLevel { get; set; } = 3;
@@ -160,29 +160,29 @@ public class GGConfig : BasePluginConfig
     /* Gives a Flash grenade on knife level */
     [JsonPropertyName("KnifeFlash")]
     public bool KnifeFlash { get; set; } = false;
-    
-     /**
-    * Block weapon switch if killer leveled up with knife
-    *
-    * Options:
-    *     true - Block weapon switch
-    *     false - Do not block weapon switch
-    */
+
+    /**
+   * Block weapon switch if killer leveled up with knife
+   *
+   * Options:
+   *     true - Block weapon switch
+   *     false - Do not block weapon switch
+   */
     [JsonPropertyName("BlockWeaponSwitchIfKnife")]
     public bool BlockWeaponSwitchIfKnife { get; set; } = false;
-    
+
     /* Enables Warmup Round*/
     [JsonPropertyName("WarmupEnabled")]
-    public bool WarmupEnabled { get; set; } = true; 
-/*    public bool? DisableWarmupOnRoundEnd { get; set; }
-    public bool? WarmupInitialized { get; set; } */
+    public bool WarmupEnabled { get; set; } = true;
+    /*    public bool? DisableWarmupOnRoundEnd { get; set; }
+        public bool? WarmupInitialized { get; set; } */
     /* Warmup time length */
     [JsonPropertyName("WarmupTimeLength")]
     public int WarmupTimeLength { get; set; } = 35;
-/*    public bool? IsVotingCalled { get; set; }
-    public bool? g_isCalledEnableFriendlyFire { get; set; }
-    public bool? g_isCalledDisableRtv { get; set; } */
-    
+    /*    public bool? IsVotingCalled { get; set; }
+        public bool? g_isCalledEnableFriendlyFire { get; set; }
+        public bool? g_isCalledDisableRtv { get; set; } */
+
     /* Multi Level Bonus */
     [JsonPropertyName("MultiLevelBonus")]
     public bool MultiLevelBonus { get; set; } = false;
@@ -211,7 +211,7 @@ public class GGConfig : BasePluginConfig
     /*Sound on Multilevel bonus */
     [JsonPropertyName("MultiLevelSound")]
     public string MultiLevelSound { get; set; } = "sounds/training/highscore.wav";
-    
+
     /**
     * Level down players if they use the "kill" command
     * 0 - Disable
@@ -228,7 +228,7 @@ public class GGConfig : BasePluginConfig
     [JsonPropertyName("RestoreLevelOnReconnect")]
     public bool RestoreLevelOnReconnect { get; set; } = true;
 
-/*    public bool? StatsEnabled { get; set; } */
+    /*    public bool? StatsEnabled { get; set; } */
     /**
     * Give random weapon on warmup.
     * If you are using WarmupRandomWeaponMode, you can nou use WarmupNades or WarmupWeapon.
@@ -277,7 +277,7 @@ public class GGConfig : BasePluginConfig
     */
     [JsonPropertyName("NumberOfNades")]
     public int NumberOfNades { get; set; } = 1;
-    
+
     /* Show levels in scoreboard */
     [JsonPropertyName("LevelsInScoreboard")]
     public bool LevelsInScoreboard { get; set; } = false;
@@ -295,7 +295,7 @@ public class GGConfig : BasePluginConfig
     /* Show leader's weapon name in chat with leading message */
     [JsonPropertyName("ShowLeaderWeapon")]
     public bool ShowLeaderWeapon { get; set; } = true;
-    
+
     /** 
     * Show players level message in hint box instead of chat.
     * If enabled then multikill chat messages will be shown 
@@ -310,9 +310,9 @@ public class GGConfig : BasePluginConfig
     */
     [JsonPropertyName("ShowLeaderInHintBox")]
     public bool ShowLeaderInHintBox { get; set; } = true;
-/*    
-    public int? g_Cfg_ScoreboardClearDeaths { get; set; }
-    public int[]? g_Cfg_RandomWeaponReservLevels { get; set; } */
+    /*    
+        public int? g_Cfg_ScoreboardClearDeaths { get; set; }
+        public int[]? g_Cfg_RandomWeaponReservLevels { get; set; } */
 
     /**
     * Gives joining players the avg/min level of all other players when they join late.
@@ -345,7 +345,7 @@ public class GGConfig : BasePluginConfig
     */
     [JsonPropertyName("HandicapTopRank")]
     public int HandicapTopRank { get; set; } = 20;
-    
+
     /**
     * Use spectator's levels to calculate handicap level.
     *
@@ -361,7 +361,7 @@ public class GGConfig : BasePluginConfig
     */
     [JsonPropertyName("HandicapTimesPerMap")]
     public int HandicapTimesPerMap { get; set; } = 0;
-    
+
     /**
     * Gives handicap level automaticaly every defined number of seconds.
     * This only works for players that is on very minimum level from 
@@ -424,7 +424,7 @@ public class GGConfig : BasePluginConfig
     * 0 - Disabled.
     * 1..N - enable friendly fire on defined level.
     */
-    [JsonPropertyName("EnableFriendlyFireLevel")] 
+    [JsonPropertyName("EnableFriendlyFireLevel")]
     public int EnableFriendlyFireLevel { get; set; } = 0; // это пока не сделано
 
     /*
@@ -454,7 +454,7 @@ public class GGConfig : BasePluginConfig
     */
     [JsonPropertyName("BlockWeaponSwitchOnNade")]
     public bool BlockWeaponSwitchOnNade { get; set; } = true;
-    
+
     /**
     * If this option is enabled, than player can level up by killing with prop_physics.
     * For example with fuel barrels etc.
@@ -623,11 +623,11 @@ public class GGConfig : BasePluginConfig
 
     [JsonPropertyName("WarmupTimerSound")]
     public string WarmupTimerSound { get; set; } = "sounds/training/countdown.wav";
-    
+
     /* Enables or disables built in Afk management system */
     [JsonPropertyName("AfkManagement")]
     public bool AfkManagement { get; set; } = true;
-        
+
     /* Kick player on x number of afk deaths. */
     [JsonPropertyName("AfkDeaths")]
     public int AfkDeaths { get; set; } = 2;
@@ -686,7 +686,7 @@ public class GGConfig : BasePluginConfig
     /* Sound for player when he leveled up */
     [JsonPropertyName("LevelUpSound")]
     public string LevelUpSound { get; set; } = "sounds/ui/armsrace_level_up.wav";
-    
+
     /* Sound for player when he stole level */
     [JsonPropertyName("LevelStealUpSound")]
     public string LevelStealUpSound { get; set; } = "sounds/training/pointscored.wav";
