@@ -1,17 +1,6 @@
-﻿using System.Data;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using Microsoft.Data.Sqlite;
-using Dapper;
-using CounterStrikeSharp.API;
-using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Modules.Memory;
-using MySqlConnector;
-using GunGame;
-using GunGame.Variables;
+﻿using GunGame.Models;
 using Microsoft.Extensions.Logging;
-using GunGame.Models;
+using MySqlConnector;
 
 namespace GunGame.Online
 {

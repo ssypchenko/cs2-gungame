@@ -1,6 +1,5 @@
-using System.Text.Json.Serialization;
 using CounterStrikeSharp.API.Core;
-using GunGame.Models;
+using System.Text.Json.Serialization;
 
 namespace GunGame;
 

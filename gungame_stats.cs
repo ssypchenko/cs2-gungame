@@ -1,17 +1,15 @@
-﻿using System.Collections.Concurrent;
+﻿using CounterStrikeSharp.API;
+using Dapper;
+using GunGame.Models;
+using GunGame.Variables;
+using MaxMind.GeoIP2;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+using MySqlConnector;
+using System.Collections.Concurrent;
 using System.Data;
 using System.Globalization;
 using System.Text;
-using MaxMind.GeoIP2;
-using Microsoft.Data.Sqlite;
-using Dapper;
-using CounterStrikeSharp.API;
-using CounterStrikeSharp.API.Core;
-using MySqlConnector;
-using GunGame.Models;
-using GunGame.Variables;
-using Microsoft.Extensions.Logging;
-using CounterStrikeSharp.API.Core.Capabilities;
 
 namespace GunGame.Stats
 {

@@ -1,22 +1,6 @@
 #pragma warning disable CS8981// Naming Styles
-using System;
-using System.Diagnostics;
-using System.Drawing;
-using System.Globalization;
-using System.IO;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
-using MaxMind.GeoIP2;
-using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.Localization;
-using Microsoft.Extensions.Logging;
-using MySqlConnector;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using CounterStrikeSharp.API.Core.Capabilities;
 using CounterStrikeSharp.API.Core.Translations;
@@ -27,20 +11,21 @@ using CounterStrikeSharp.API.Modules.Entities;
 using CounterStrikeSharp.API.Modules.Entities.Constants;
 using CounterStrikeSharp.API.Modules.Events;
 using CounterStrikeSharp.API.Modules.Memory;
-using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
-using Newtonsoft.Json;
 using GunGame.API;
 using GunGame.Models;
-using GunGame.Variables;
-using GunGame.Stats;
 using GunGame.Online;
-using System.Security.Principal;
-using System.Net;
-using System.Runtime.Intrinsics.X86;
-using Serilog;
+using GunGame.Stats;
+using GunGame.Variables;
+using Microsoft.Extensions.Localization;
+using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
+using System.Drawing;
+using System.Globalization;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace GunGame
 {
@@ -54,22 +39,26 @@ namespace GunGame
         }
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new ();
+
         public override string ModuleName => "CS2_GunGame";
         public override string ModuleVersion => "v1.1.0";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
+
         public CoreAPI CoreAPI { get; set; } = null!;
         private static PluginCapability<IAPI> APICapability { get; } = new("gungame:api");
         public bool LogConnections = false;
         public bool WeaponLoaded = false;
         private bool warmupInitialized = false;
         private int WarmupCounter = 0;
-        private bool IsObjectiveHooked = false;        
+        private bool IsObjectiveHooked = false;  
+        
         public GGConfig Config { get; set; } = new();
         public DatabaseSettings dbSettings = new();
         public StatsManager statsManager { get; set; } = null!;
         public OnlineManager onlineManager { get; set; } = null!;
         public DatabaseOperationQueue dbQueue { get; set; } = null!;
+
         public void OnConfigParsed (GGConfig config)
         { 
             this.Config = config;

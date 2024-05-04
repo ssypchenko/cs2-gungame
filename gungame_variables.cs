@@ -1,6 +1,5 @@
 ﻿using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Utils;
-//using GunGame;
 using GunGame.Models;
 
 namespace GunGame.Variables

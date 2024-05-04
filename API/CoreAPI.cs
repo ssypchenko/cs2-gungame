@@ -1,14 +1,16 @@
-﻿using GunGame;
-using GunGame.Variables;
+﻿using GunGame.Variables;
+
 namespace GunGame.API
 {
     public class CoreAPI : IAPI
     {
-        private GunGame _gunGame;
+        private readonly GunGame _gunGame;
+
         public CoreAPI(GunGame gunGame)
         {
             _gunGame = gunGame;  // Initialize it through the constructor
         }
+
         public event Action<WinnerEventArgs>? WinnerEvent;
         public void RaiseWinnerEvent(int winner, int looser)
         {
