@@ -42,7 +42,7 @@ namespace GunGame
         public PlayerLanguageManager playerLanguageManager = new ();
 
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.2.0-alpha.0";
+        public override string ModuleVersion => "v1.2.0-beta.0";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
 
@@ -1242,7 +1242,7 @@ namespace GunGame
             {
                 if (Config.ReloadWeapon)
                 {
-                    ReloadActiveWeapon(Killer, usedWeaponInfo.Index);
+                    ReloadActiveWeapon(KillerController);
                 }
                 spawnManager.RespawnPlayer(VictimController);
                 return HookResult.Continue;
@@ -1327,8 +1327,8 @@ namespace GunGame
             if (stop_further_processing || TeamKill)
             {
                 if (stop_further_processing)
-                {    
-                    ReloadActiveWeapon(Killer, usedWeaponInfo.Index);
+                {
+                    ReloadActiveWeapon(KillerController);
                     spawnManager.RespawnPlayer(VictimController);
                     return HookResult.Continue;
                 } 
@@ -1582,7 +1582,7 @@ namespace GunGame
                         
                         if ( Config.ReloadWeapon && Killer != null && Killer.LevelWeapon != null)
                         {
-                            ReloadActiveWeapon(Killer, Killer.LevelWeapon.Index);
+                            ReloadActiveWeapon(KillerController);
                         }
                         spawnManager.RespawnPlayer(VictimController);
                         return HookResult.Continue;
@@ -1593,7 +1593,7 @@ namespace GunGame
             // reload weapon
             if ( !Config.TurboMode && Config.ReloadWeapon)
             {
-                ReloadActiveWeapon(Killer, Killer.LevelWeapon.Index);
+                ReloadActiveWeapon(KillerController);
             }
                 
             if ( Config.KnifeElite )
@@ -2275,19 +2275,18 @@ namespace GunGame
                 }
             }
         }
-        private static void ReloadActiveWeapon (GGPlayer player, int weapon_index)
+        private void ReloadActiveWeapon (CCSPlayerController player)
         {
-            // pass from WeaponInfo. Can I take the whole class? Then I'll do it
-/*            new Slots:slot = g_WeaponSlot[WeaponId];
-            if ((slot == Slot_Primary )
-                || (slot == Slot_Secondary)
-                || (g_WeaponLevelIndex[WeaponId] == g_WeaponLevelIdTaser)
-            ) {
-                new ent = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-                if ((ent > -1) && g_WeaponAmmo[WeaponId]) {
-                    SetEntProp(ent, Prop_Send, "m_iClip1", g_WeaponAmmo[WeaponId] + (g_GameName==GameName:Csgo?1:0)); // "+1" is needed because ammo is refilling before last shot is counted
-                }
-            } */
+            var weapon = player.PlayerPawn?.Value?.WeaponServices?.ActiveWeapon?.Value?.As<CCSWeaponBaseGun>();
+            if (weapon == null || !weapon.IsValid)
+                return;
+
+            var weaponData = weapon.VData;
+            if (weaponData == null)
+                return;
+
+            weapon.Clip1 = weaponData.MaxClip1 + 1;// "+1" is needed because ammo is refilling before last shot is counted
+            Utilities.SetStateChanged(weapon.As<CCSWeaponBase>(), "CBasePlayerWeapon", "m_pReserveAmmo");
         }
         private void CheckForFriendlyFire(GGPlayer player)
         {
