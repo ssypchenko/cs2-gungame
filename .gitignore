@@ -49,3 +49,8 @@ Thumbs.db
 *.wmv
 
 
+
+/.vs
+obj/
+bin/
+*.user
