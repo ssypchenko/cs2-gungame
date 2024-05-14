@@ -7,7 +7,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.228" />
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.233" />
     <PackageReference Include="MaxMind.GeoIP2" Version="*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
     <PackageReference Include="MySqlConnector" Version="*" />
@@ -16,7 +16,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="*" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="/Users/sergeysypchenko/css-development/GunGameAPI/GunGameAPI.csproj" />
+    <ProjectReference Include="GunGameAPI/GunGameAPI.csproj" />
   </ItemGroup>
   <ItemGroup>
         <None Update="lang\**\*.*" CopyToOutputDirectory="PreserveNewest" />

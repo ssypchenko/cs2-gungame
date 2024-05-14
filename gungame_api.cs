@@ -36,9 +36,9 @@ namespace GunGame.API
             return args.Result;
         }
         public event Action<PointChangeEventArgs>? PointChangeEvent;
-        public bool RaisePointChangeEvent(int killer, int kills)
+        public bool RaisePointChangeEvent(int killer, int kills, int victim)
         {
-            var args = new PointChangeEventArgs(killer, kills);
+            var args = new PointChangeEventArgs(killer, kills, victim);
             PointChangeEvent?.Invoke(args);
             return args.Result;
         }
@@ -64,6 +64,17 @@ namespace GunGame.API
             if (player != null)
                 return (int)player.Level;
             return 0;
+        }
+        public int GetMaxCurrentLevel()
+        {
+            var player = _gunGame.playerManager.FindLeader();
+            if (player != null)
+                return (int)player.Level;
+            return 0;
+        }
+        public bool IsWarmupInProgress()
+        {
+            return _gunGame.warmupInitialized;
         }
     }
 }

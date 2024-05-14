@@ -48,8 +48,6 @@ Thumbs.db
 *.mov
 *.wmv
 
-
-
 /.vs
 obj/
 bin/
