@@ -4,7 +4,7 @@ using GunGame.Models;
 
 namespace GunGame;
 
-public class GGConfig : BasePluginConfig
+public class GGConfig
 {
     [JsonPropertyName("IsPluginEnabled")]
     public bool IsPluginEnabled { get; set; } = true;
@@ -720,6 +720,10 @@ public class GGConfig : BasePluginConfig
         "sounds/vo/commander/commander_comment_09.wav",
         "sounds/vo/commander/commander_comment_14.wav"
     };
+    /* Sound for everyone when someone killed my Molotov and stole a level */
+    [JsonPropertyName("MolotovKillSound")]
+    public string MolotovKillSound { get; set; } = "gungame/gori.mp3";
+    
     [JsonPropertyName("SpawnDistance")]
     public double SpawnDistance { get; set; } = 60.0;
 }
