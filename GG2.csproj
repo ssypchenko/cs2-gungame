@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefaultItemExcludes>GunGameAPI\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CounterStrikeSharp.API" Version="1.0.233" />
@@ -16,7 +17,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="*" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="GunGameAPI/GunGameAPI.csproj" />
+    <ProjectReference Include="GunGameAPI\GunGameAPI.csproj" />
   </ItemGroup>
   <ItemGroup>
         <None Update="lang\**\*.*" CopyToOutputDirectory="PreserveNewest" />
