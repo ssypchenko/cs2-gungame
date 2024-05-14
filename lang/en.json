@@ -36,7 +36,6 @@
   "player.rank": "Your rank - {olive}{0}",
   "set.sound": " {olive}To toggle (turn off/on) extra sounds use '!music' in chat",
   "top.list": " {lightpurple} '!top' in chat for leaders list",
-  "notop.records": "Leaders list is empty",
   "your.rank": " {blue} Your rank - '!rank' in chat",
   "nomore.knives": "2 steals in the row only. Than you need level up with weapon",
   "additionalfrags.left": "{0} extra frags left",
