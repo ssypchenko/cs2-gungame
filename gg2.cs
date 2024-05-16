@@ -684,13 +684,12 @@ namespace GunGame
         }
         private void OnClientConnected(int slot)
         {
-            var player = playerManager.InitPlayer(slot);
+            var player = playerManager.CreatePlayerBySlot(slot);
             if (player == null)
             {
                 Logger.LogError($"[GUNGAME]* OnClientConnected: Can't create player {slot}");
                 return;
             }
-            Logger.LogInformation($"{player.PlayerName} ({slot}) connected");
         }
         private void OnClientPutInServer(int slot)
         {
@@ -700,6 +699,7 @@ namespace GunGame
                 Logger.LogError($"[GUNGAME]* OnClientPutInServer: Can't create player {slot}");
                 return;
             }
+            Logger.LogInformation($"{player.PlayerName} ({slot}) connected");
         }
         private void OnClientAuthorized(int slot, SteamID id)
         {
@@ -1342,7 +1342,7 @@ namespace GunGame
             {
 //                Console.WriteLine($"{VictimController.PlayerName} - suicide");
                 /* (Weapon is event weapon name, can be 'world' or 'hegrenade' etc) */ /* weapon is not 'world' (ie not kill command) */
-                Logger.LogInformation($"Victim {VictimController.PlayerName} Killer Is Victim, weapon {weapon_used}");
+//                Logger.LogInformation($"Victim {VictimController.PlayerName} Killer Is Victim, weapon {weapon_used}");
                 if (Config.CommitSuicide > 0 && GGVariables.Instance.RoundStarted && !Victim.TeamChange )
                 {
                     // killed himself by kill command or by hegrenade
@@ -1927,7 +1927,7 @@ namespace GunGame
             if (@event != null && @event.Userid != null)
             {
                 var playerController = @event.Userid;
-                if (!playerController.IsValid)
+                if (!playerController.IsValid || (newTeam == 0 && disconnect))
                     return HookResult.Continue;
                 int slot = playerController.Slot;
                 if (newTeam == 2 || newTeam == 3)
@@ -1949,7 +1949,7 @@ namespace GunGame
                     var player = playerManager.FindBySlot(playerController.Slot, "EventPlayerTeamHandler");
                     if (player == null)
                     {
-                        Logger.LogError($"[GunGame] EventPlayerTeamHandler: player == null: oldTeam {oldTeam}, newTeam {newTeam}, disconnect {(disconnect ? "yes" : "no")}, slot {playerController.Slot}, {playerController.PlayerName}");
+//                        Logger.LogError($"[GunGame] EventPlayerTeamHandler: player == null: oldTeam {oldTeam}, newTeam {newTeam}, disconnect {(disconnect ? "yes" : "no")}, slot {playerController.Slot}, {playerController.PlayerName}");
                         return HookResult.Continue;
                     }
                     if ( oldTeam >= 2 && newTeam >= 2)
@@ -3394,7 +3394,7 @@ namespace GunGame
         }
         public void SavePlayerWins(GGPlayer player)
         {
-            Logger.LogInformation($"{player.PlayerName} won, wins was {player.PlayerWins}");
+//            Logger.LogInformation($"{player.PlayerName} won, wins was {player.PlayerWins}");
             if (player.PlayerWins < 0)
             {
                 Logger.LogError($"{player.PlayerName} win, but his PlayerWins is less than 0, so data need to be updated");
