@@ -2854,6 +2854,12 @@ namespace GunGame
         {
             if (GGVariables.Instance.Mp_friendlyfire == null)
                 return;
+
+            if (Config.FriendlyFireAllowed && Status)
+                Server.ExecuteCommand($"sv_cheats 1; mp_teammates_are_enemies 1; sv_cheats 0");
+            else
+                Server.ExecuteCommand($"sv_cheats 1; mp_teammates_are_enemies 0; sv_cheats 0");
+
             GGVariables.Instance.Mp_friendlyfire.Public = true; // set FCVAR_NOTIFY
             GGVariables.Instance.Mp_friendlyfire.SetValue(Status);
             string text;
