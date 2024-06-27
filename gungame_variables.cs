@@ -50,7 +50,6 @@ namespace GunGame.Variables
             "your.rank",
             "change.language"
         };
-        public string LooserName = "";
         public int InfoMessageIndex = 0;
         public Dictionary<int, List<SpawnInfo>> spawnPoints = new();
         public Vector [] Position = new Vector [65];

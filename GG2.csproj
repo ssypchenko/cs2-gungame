@@ -8,7 +8,7 @@
     <DefaultItemExcludes>GunGameAPI\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.233" />
+    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.245" />
     <PackageReference Include="MaxMind.GeoIP2" Version="*" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
     <PackageReference Include="MySqlConnector" Version="*" />

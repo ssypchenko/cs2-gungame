@@ -576,6 +576,18 @@ public class GGConfig
     public bool WinnerFreezePlayers { get; set; } = true;
 
     /**
+    * Print Winner and Looser after win.
+    *
+    * Options:
+    *      0 - Don't print.
+    *      1 - Print in Chat.
+    *      2 - Print in Centre.
+    *      3 - Print in CentreHtml.
+    */
+    [JsonPropertyName("WinnerMessage")]
+    public int WinnerMessage { get; set; } = 3;
+
+    /**
     * Switch weapon without delays when player changes weapon by himself.
     *
     * SDK Hooks (sdkhooks) is required to use this option.

@@ -58,7 +58,7 @@ namespace GunGame
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
-        private static PluginCapability<IAPI> APICapability { get; } = new("gungame:api");
+        private static PluginCapability<IAPI> APICapability { get; } = new("gungame:api"); 
 //        public bool LogConnections = false;
         public bool WeaponLoaded = false;
         public bool warmupInitialized = false;
@@ -209,14 +209,15 @@ namespace GunGame
         public SpecialWeaponInfo SpecialWeapon = new();
         public Random random = new();
         public bool[,] g_Shot = new bool[65,65];
-        public double [] LastDeathTime = new double[65];
-        public List<string> WinnerMessage = new()
+        private double [] LastDeathTime = new double[65];
+        private List<string> WinnerMessage = new()
         {
             "<font color='",
             "'>",
             "<br>",
             "</font>"
         };
+        private string LooserName = "";
         public int HandicapTopWins = 0; // number of wins of a lowest player in TopRank restricted by number HandicapTopRank
         private bool TryGetWeaponInfo(string weaponName, out WeaponInfo weaponInfo)
         {
@@ -264,15 +265,15 @@ namespace GunGame
             LoadDBConfig();
             if (LoadConfig())
             {
+                var tempCulture = playerLanguageManager.GetDefaultLanguage();
+                GGVariables.Instance.ServerLanguageCode = tempCulture.Name.ToLower();
+                SetupListeners();
+                RegisterEvents();
+                SetupGameWeapons();
+                SetupWeaponsLevels();
+
                 if (Config.IsPluginEnabled)
                 {
-                    var tempCulture = playerLanguageManager.GetDefaultLanguage();
-                    GGVariables.Instance.ServerLanguageCode = tempCulture.Name.ToLower();
-                    SetupListeners();
-                    RegisterEvents();
-                    SetupGameWeapons();
-                    SetupWeaponsLevels();
-
                     if (WeaponLoaded) 
                     {
                         GGVariables.Instance.IsActive = true;
@@ -316,33 +317,29 @@ namespace GunGame
         }
         public override void Unload(bool hotReload)
         {
-            //*********************************************
             dbQueue.Stop();
-            if (Config.IsPluginEnabled)
-            {
-                DeregisterEventHandler<EventPlayerDeath>(EventPlayerDeathHandler);
-                DeregisterEventHandler<EventPlayerHurt>(EventPlayerHurtHandler);
-                DeregisterEventHandler<EventPlayerTeam>(EventPlayerTeamHandler);
-                DeregisterEventHandler<EventPlayerSpawn>(EventPlayerSpawnHandler);
-                DeregisterEventHandler<EventRoundStart>(EventRoundStartHandler);
-                DeregisterEventHandler<EventRoundEnd>(EventRoundEndHandler);
-                DeregisterEventHandler<EventHegrenadeDetonate>(EventHegrenadeDetonateHandler);
-                DeregisterEventHandler<EventWeaponFire>(EventWeaponFireHandler);
-    /*                DeregisterEventHandler<EventItemPickup>(EventItemPickupHandler, HookMode.Post);
-                DeregisterEventHandler<EventBombPlanted>(EventBombHandler);
-                DeregisterEventHandler<EventBombExploded>(EventBombHandler);
-                DeregisterEventHandler<EventBombDefused>(EventBombHandler);
-                DeregisterEventHandler<EventBombPickup>(EventBombPickupHandler);
-                DeregisterEventHandler<EventHostageKilled>(EventHostageKilledHandler); */
+            DeregisterEventHandler<EventPlayerDeath>(EventPlayerDeathHandler);
+            DeregisterEventHandler<EventPlayerHurt>(EventPlayerHurtHandler);
+            DeregisterEventHandler<EventPlayerTeam>(EventPlayerTeamHandler);
+            DeregisterEventHandler<EventPlayerSpawn>(EventPlayerSpawnHandler);
+            DeregisterEventHandler<EventRoundStart>(EventRoundStartHandler);
+            DeregisterEventHandler<EventRoundEnd>(EventRoundEndHandler);
+            DeregisterEventHandler<EventHegrenadeDetonate>(EventHegrenadeDetonateHandler);
+            DeregisterEventHandler<EventWeaponFire>(EventWeaponFireHandler);
+/*                DeregisterEventHandler<EventItemPickup>(EventItemPickupHandler, HookMode.Post);
+            DeregisterEventHandler<EventBombPlanted>(EventBombHandler);
+            DeregisterEventHandler<EventBombExploded>(EventBombHandler);
+            DeregisterEventHandler<EventBombDefused>(EventBombHandler);
+            DeregisterEventHandler<EventBombPickup>(EventBombPickupHandler);
+            DeregisterEventHandler<EventHostageKilled>(EventHostageKilledHandler); */
 
-                RemoveListener<Listeners.OnClientConnected>(OnClientConnected);
-                RemoveListener<Listeners.OnClientPutInServer>(OnClientPutInServer);
-                RemoveListener<Listeners.OnClientAuthorized>(OnClientAuthorized);            
-                RemoveListener<Listeners.OnMapStart>(OnMapStart);
-                RemoveListener<Listeners.OnMapEnd>(OnMapEnd);
-                RemoveListener<Listeners.OnClientDisconnect>(OnClientDisconnect); 
-                RemoveListener<Listeners.OnClientDisconnectPost>(OnClientDisconnectPost);
-            }
+            RemoveListener<Listeners.OnClientConnected>(OnClientConnected);
+            RemoveListener<Listeners.OnClientPutInServer>(OnClientPutInServer);
+            RemoveListener<Listeners.OnClientAuthorized>(OnClientAuthorized);            
+            RemoveListener<Listeners.OnMapStart>(OnMapStart);
+            RemoveListener<Listeners.OnMapEnd>(OnMapEnd);
+            RemoveListener<Listeners.OnClientDisconnect>(OnClientDisconnect); 
+            RemoveListener<Listeners.OnClientDisconnectPost>(OnClientDisconnectPost);
         }
         private void RestartGame()
         {
@@ -774,11 +771,10 @@ namespace GunGame
             }
             if (LoadConfig())
             {
+                SetupGameWeapons();
+                SetupWeaponsLevels();
                 if (Config.IsPluginEnabled)
                 {
-                    SetupGameWeapons();
-                    SetupWeaponsLevels();
-                
                     if (WeaponLoaded)
                     {
                         GGVariables.Instance.IsActive = true;
@@ -802,43 +798,6 @@ namespace GunGame
                         {
                             StartWarmupRound();
                         }
-                        AddTimer(3.6f, () => {
-                            // get map spawn point
-                            GGVariables.Instance.spawnPoints = new();
-                            var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
-                            var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
-                            var dmSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_deathmatch_spawn");
-
-                            GGVariables.Instance.spawnPoints[2] = new ();
-                            GGVariables.Instance.spawnPoints[3] = new ();
-                            GGVariables.Instance.spawnPoints[4] = new ();
-
-                            foreach (var entity in tSpawns)
-                            {
-                                if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                                {
-                                    GGVariables.Instance.spawnPoints[2].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                                }
-                            }
-
-                            foreach (var entity in ctSpawns)
-                            {
-                                if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                                {
-                                    GGVariables.Instance.spawnPoints[3].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                                }
-                            }
-                            foreach (var entity in dmSpawns)
-                            {
-                                if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
-                                {
-                                    GGVariables.Instance.spawnPoints[4].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
-                                }
-                            }
-                            if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == 4)
-                                Config.RespawnByPlugin = 3;
-                            Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
-                        });
                     }
                 }
                 else
@@ -850,6 +809,43 @@ namespace GunGame
             {
                 Logger.LogError("Error loading config on Restart command. Plugin is inactive");
             }
+            AddTimer(3.6f, () => {
+                // get map spawn point
+                GGVariables.Instance.spawnPoints = new();
+                var tSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_terrorist");
+                var ctSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_player_counterterrorist");
+                var dmSpawns = Utilities.FindAllEntitiesByDesignerName<SpawnPoint>("info_deathmatch_spawn");
+
+                GGVariables.Instance.spawnPoints[2] = new ();
+                GGVariables.Instance.spawnPoints[3] = new ();
+                GGVariables.Instance.spawnPoints[4] = new ();
+
+                foreach (var entity in tSpawns)
+                {
+                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                    {
+                        GGVariables.Instance.spawnPoints[2].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                    }
+                }
+
+                foreach (var entity in ctSpawns)
+                {
+                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                    {
+                        GGVariables.Instance.spawnPoints[3].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                    }
+                }
+                foreach (var entity in dmSpawns)
+                {
+                    if (entity != null && entity.IsValid && entity.AbsOrigin != null && entity.AbsRotation != null)
+                    {
+                        GGVariables.Instance.spawnPoints[4].Add(new SpawnInfo(entity.AbsOrigin, entity.AbsRotation));
+                    }
+                }
+                if (GGVariables.Instance.spawnPoints[4].Count < 1 && Config.RespawnByPlugin == 4)
+                    Config.RespawnByPlugin = 3;
+                Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
+            });
 /*            AddTimer(10.0f, () => {
                 LogConnections = true;
             }); */
@@ -1169,25 +1165,7 @@ namespace GunGame
             }
             if ( Config.WarmupEnabled && !GGVariables.Instance.WarmupFinished )
             {
-
                 GiveWarmUpWeaponDelayed(0.5f, client.Slot);
-/*                AddTimer(0.7f, () => {
-                    if (playerController != null && playerController.IsValid && !playerController.IsBot)
-                    {
-                        var player = playerManager.FindBySlot(playerController.Slot, "EventPlayerSpawnHandler");
-                        if ( player != null)
-                        {
-                            if ( !warmupInitialized ) {
-
-                                playerController.PrintToChat(player.Translate("warmup.notstarted"));
-                            } else {
-                                playerController.PrintToChat(player.Translate("warmup.started"));
-                            } 
-                        } 
-                    }
-                }); */
-                
-
                 return HookResult.Continue;
             }
             AddTimer(0.1f, () =>
@@ -1261,7 +1239,7 @@ namespace GunGame
 //            UpdatePlayerScoreDelayed(Killer);
 
             /* They change team at round end don't punish them and don't respawn then. */
-            if ( !GGVariables.Instance.RoundStarted && !Config.AllowLevelUpAfterRoundEnd )
+            if ( (!GGVariables.Instance.RoundStarted && !Config.AllowLevelUpAfterRoundEnd) || GGVariables.Instance.GameWinner != null)
             {
                 Respawn(VictimController, false);
                 return HookResult.Continue;
@@ -2433,7 +2411,6 @@ namespace GunGame
         {
             if (!HasWeapon(player, "weapon_molotov"))
             {
-                Logger.LogInformation($"GiveExtraMolotov to {player.PlayerName} for kill by another weapon");
                 RemoveGrenades(player);
                 player.GiveNamedItem("weapon_molotov");
                 if (Config.MolotovBonusSmoke) {
@@ -2443,10 +2420,10 @@ namespace GunGame
                     player.GiveNamedItem("weapon_flashbang");
                 }
             }
-            else 
+/*            else 
             {
                 Logger.LogInformation($"Can't give GiveExtraMolotov to {player.PlayerName} for kill by another weapon, he has the molotov already");
-            }
+            } */
         }
         private static void ReloadActiveWeapon (CCSPlayerController player)
         {
@@ -3194,7 +3171,7 @@ namespace GunGame
                 }
             }
         }
-        private int ChangeLevel(GGPlayer player, int difference, bool KnifeSteal = false, CCSPlayerController CounterpartController = null!)
+        private int ChangeLevel(GGPlayer player, int difference, bool KnifeSteal = false, CCSPlayerController victimPc = null!)
         {
             if ( difference == 0 || !GGVariables.Instance.IsActive || warmupInitialized || GGVariables.Instance.GameWinner != null )
             {
@@ -3218,14 +3195,14 @@ namespace GunGame
             {
                 knife = true;
             }
-            int counterpart = -1;
-            if (CounterpartController != null)
-                counterpart = CounterpartController.Slot;
+            int victim = -1;
+            if (victimPc != null && victimPc.IsValid)
+                victim = victimPc.Slot;
 
             bool accept = true;
             try
             {
-                accept = CoreAPI.RaiseLevelChangeEvent(player.Slot, Level, difference, KnifeSteal, Level == GGVariables.Instance.WeaponOrderCount, knife, counterpart);
+                accept = CoreAPI.RaiseLevelChangeEvent(player.Slot, Level, difference, KnifeSteal, Level == GGVariables.Instance.WeaponOrderCount, knife, victim);
             }
             catch (Exception ex)
             {
@@ -3267,63 +3244,68 @@ namespace GunGame
             {
                 /* Winner Winner Winner */
                 GGVariables.Instance.GameWinner = new(player);
+                LooserName = "";
+                if (victimPc != null && victimPc.IsValid)
+                {
+                    LooserName = victimPc.PlayerName;
+                }
                 Logger.LogInformation($"Winner {player.PlayerName}");
-                string fontColour;
-                int winnerTeam = player.GetTeam();
-                if (winnerTeam == 2 )
+                if (Config.WinnerMessage > 0)
                 {
-                    fontColour = "#FF5959";
-                }
-                else if (winnerTeam == 3 )
-                {
-                    fontColour = "#00BFFF";
-                }
-                else 
-                {
-                    fontColour = "#FFFFFF";
-                }
-                if (CounterpartController != null && CounterpartController.IsValid)
-                {
-                    GGVariables.Instance.LooserName = CounterpartController.PlayerName;
-                }
-                else
-                {
-                    GGVariables.Instance.LooserName = "";
-                }
-                WinnerMessage[0] += fontColour;
-
-//                Server.PrintToChatAll(Localizer["winner.is", player.PlayerName]);
-                Listeners.OnTick onTick = new(OnTickHandle);
-                RegisterListener(onTick);
-                AddTimer(15.0f, () => {
-                    RemoveListener(onTick);
-                }); 
-                /*
-                int r = (team == TEAM_T ? 255 : 0);
-                int g =  team == TEAM_CT ? 128 : (team == TEAM_T ? 0 : 255);
-                int b = (team == TEAM_CT ? 255 : 0);
-                UTIL_PrintToUpperLeft(r, g, b, "%t", "Has won", Name); */
-
-                int winnerSlot = player.Slot;
-                int looserSlot = -1;
-                if (CounterpartController != null && CounterpartController.IsValid && !CounterpartController.IsBot)
-                {
-                    looserSlot = CounterpartController.Slot;
-                }
-
-                if (!(Config.DontAddWinsOnBot && CounterpartController != null && CounterpartController.IsValid && CounterpartController.IsBot))
-                {
-                    try
+                    int winnerTeam = player.GetTeam();
+                    if (Config.WinnerMessage == 1)
                     {
-                        CoreAPI.RaiseWinnerEvent(winnerSlot, looserSlot);
-                    }
-                    catch (Exception ex)
-                    {
-                        Server.NextFrame(() =>
+                        var playerEntities = GetValidPlayers();
+                        if (playerEntities != null && playerEntities.Any())
                         {
-                            Logger.LogError($"[GunGame API ERROR] RaiseWinnerEvent returned exception: {ex.Message}");
+                            foreach (var playerController in playerEntities)
+                            {
+                                var pl = playerManager.FindBySlot(playerController.Slot);
+                                if (pl != null)
+                                {
+                                    string text = (winnerTeam == 2 ? " \x02" : " \x0C") + pl.Translate("winner.is",GGVariables.Instance.GameWinner.Name) + (winnerTeam == 2 ? " \x0C" : " \x02") + pl.Translate("looser.is", LooserName);
+                                    playerController.PrintToChat(text);
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        string fontColour;
+                        if (winnerTeam == 2 )
+                        {
+                            fontColour = "#FF5959";
+                        }
+                        else if (winnerTeam == 3 )
+                        {
+                            fontColour = "#00BFFF";
+                        }
+                        else 
+                        {
+                            fontColour = "#FFFFFF";
+                        }
+                        WinnerMessage[0] += fontColour;
+                        Listeners.OnTick onTick = new(OnTickHandle);
+                        RegisterListener(onTick);
+                        AddTimer(15.0f, () => {
+                            RemoveListener(onTick);
                         });
                     }
+                }
+
+                try
+                {
+                    CoreAPI.RaiseWinnerEvent(player.Slot, victim);
+                }
+                catch (Exception ex)
+                {
+                    Server.NextFrame(() =>
+                    {
+                        Logger.LogError($"[GunGame API ERROR] RaiseWinnerEvent returned exception: {ex.Message}");
+                    });
+                }
+                if (!(Config.DontAddWinsOnBot && victimPc != null && victimPc.IsValid && victimPc.IsBot))
+                {
                     SavePlayerWins(player);
                 }
                 
@@ -3475,9 +3457,9 @@ namespace GunGame
         private static void EndMultiplayerGameSilent ()
         {
             Console.WriteLine("EndMultiplayerGameSilent");
-            var gameEnd = NativeAPI.CreateEvent("game_end", true);
+/*            var gameEnd = NativeAPI.CreateEvent("game_end", true);
             NativeAPI.SetEventInt(gameEnd,"winner",2);
-            NativeAPI.FireEvent(gameEnd, false);
+            NativeAPI.FireEvent(gameEnd, false); */
         }
         private void EndMultiplayerGameNormal ()
         {
@@ -3578,14 +3560,10 @@ namespace GunGame
         }
         private void OnTickHandle()
         {
-            string wname;
+            string wname = "Winner";
             if (GGVariables.Instance.GameWinner != null)
             {
                 wname = GGVariables.Instance.GameWinner.Name;
-            }
-            else
-            {
-                wname = "Winner";
             }
             var playerEntities = GetValidPlayers();
 //            Utilities.GetPlayers().Where(p => p != null && p.IsValid && p.Connected == PlayerConnectedState.PlayerConnected && !p.IsBot && !p.IsHLTV);
@@ -3596,8 +3574,15 @@ namespace GunGame
                     var pl = playerManager.FindBySlot(playerController.Slot, "OnTickHandle");
                     if (pl != null)
                     {
-                        string text = WinnerMessage[0] + WinnerMessage[1] + pl.Translate("winner.is",wname) + WinnerMessage[2] + pl.Translate("looser.is", GGVariables.Instance.LooserName) + WinnerMessage[3];
-                        playerController.PrintToCenterHtml(text);
+                        if (Config.WinnerMessage == 2)              //print to Centre
+                        {
+                            playerController.PrintToCenter(pl.Translate("winner.is",wname) + " " + pl.Translate("looser.is", LooserName));
+                        }
+                        else                                        //==3 print to CentreHtml
+                        {
+                            string text = WinnerMessage[0] + WinnerMessage[1] + pl.Translate("winner.is",wname) + WinnerMessage[2] + pl.Translate("looser.is", LooserName) + WinnerMessage[3];
+                            playerController.PrintToCenterHtml(text);
+                        }
                     }
                 }
             }
@@ -3822,6 +3807,16 @@ namespace GunGame
         {
             Config.IsPluginEnabled = false;
             GGVariables.Instance.IsActive = false;
+            if (HandicapUpdateTimer != null)
+            {
+                HandicapUpdateTimer.Kill();
+                HandicapUpdateTimer = null;
+            }
+            if (_infoTimer != null)
+            {
+                _infoTimer.Kill();
+                _infoTimer = null;
+            }
             Server.ExecuteCommand("sv_cheats 1; endround; sv_cheats 0;");
         }
         [ConsoleCommand("css_lang", "Set Player's Language")]
@@ -3975,18 +3970,21 @@ namespace GunGame
                             return;
                         }
                         SpawnInfo spawn = null!;
-                        if ((pl.TeamNum == 2 || pl.TeamNum == 3) && spawnpoint)
+                        if (pl.TeamNum == 2 || pl.TeamNum == 3)
                         {
-                            spawn = GetSuitableSpawnPoint(pl.Slot, pl.TeamNum, Config.SpawnDistance);
-                            if (spawn == null)
+                            if (spawnpoint)
                             {
-                                Logger.LogError($"Spawn point not found for {pl.PlayerName} ({pl.Slot})");
+                                spawn = GetSuitableSpawnPoint(pl.Slot, pl.TeamNum, Config.SpawnDistance);
+                                if (spawn == null)
+                                {
+                                    Logger.LogError($"Spawn point not found for {pl.PlayerName} ({pl.Slot})");
+                                }
                             }
-                        }
-                        pl.Respawn();
-                        if (spawn != null)
-                        {
-                            player.PlayerPawn.Value!.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                            pl.Respawn();
+                            if (spawn != null)
+                            {
+                                player.PlayerPawn.Value!.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                            }
                         }
                     });
                 }
