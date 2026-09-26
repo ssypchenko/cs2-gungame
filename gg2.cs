@@ -56,7 +56,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.2.7";
+        public override string ModuleVersion => "v1.2.8";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -2155,8 +2155,9 @@ namespace GunGame
             var victim = eventInfo.Userid;
             var weapon = eventInfo.Weapon;
 
-            // ShootKnifeBlock protects human victims only. Bots may be shot and then knifed.
-            if (victim?.IsBot == true)
+            // ShootKnifeBlock applies only to human attackers.
+            // Human players are still punished for shooting and then knifing any victim, including bots.
+            if (attacker?.IsBot == true)
             {
                 return HookResult.Continue;
             }
