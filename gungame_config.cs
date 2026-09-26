@@ -117,8 +117,9 @@ public class GGConfig
     /**
     * Prohibit to shoot and then knife
     * 
-    * true - Player will loose a level for shoot and knife
+    * true - Player will loose a level for shoot and knife against human players
     * false - ignore
+    * Bots are excluded from this restriction.
     */
     [JsonPropertyName("ShootKnifeBlock")]
     public bool ShootKnifeBlock { get; set; } = true;
@@ -758,8 +759,5 @@ public class GGConfig
     
     [JsonPropertyName("SpawnDistance")]
     public double SpawnDistance { get; set; } = 100.0;
-
-    [JsonPropertyName("LogSpawnDistance")]
-    public bool LogSpawnDistance { get; set; } = false;
 
 }
