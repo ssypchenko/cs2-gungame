@@ -14,7 +14,7 @@ public class GGConfig
 
     [JsonPropertyName("AllowKickNotConfirmedSteamID")]
     public bool AllowKickNotConfirmedSteamID { get; set; } = true;
-    /* Random Respawn type 0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns */
+    /* Random Respawn type 0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns, 5 - Random NavMesh spawn across the whole map */
     [JsonPropertyName("RespawnByPlugin")]
     public int RespawnByPlugin { get; set; } = 0;
     /* Remove objectives from map. 0 = Disabled, 1 = BOMB, 2 = HOSTAGE, 3 = BOTH*/
