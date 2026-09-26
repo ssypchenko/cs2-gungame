@@ -56,7 +56,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.2.8";
+        public override string ModuleVersion => "v1.2.9";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -5251,6 +5251,7 @@ namespace GunGame
 
                 if (distance <= RandomNavSpawnVerifyTolerance)
                 {
+                    PlayRandomNavSpawnSound(playerController, pawn);
                     return;
                 }
 
@@ -5271,6 +5272,44 @@ namespace GunGame
 
                 Logger.LogWarning($"[SPAWN] NAV teleport verification failed after retry for {playerController.PlayerName} ({slot}): target={spawn.Position}, actual={actual}, distance={distance:F1}");
             }, TimerFlags.STOP_ON_MAPCHANGE);
+        }
+
+        private void PlayRandomNavSpawnSound(CCSPlayerController spawnedPlayer, CCSPlayerPawn spawnedPawn)
+        {
+            if (string.IsNullOrWhiteSpace(Config.SpawnSound))
+            {
+                return;
+            }
+
+            RecipientFilter recipients = [];
+            bool hasRecipients = false;
+
+            foreach (var playerController in GetValidPlayers())
+            {
+                if (playerController.Slot == spawnedPlayer.Slot
+                    || playerController.TeamNum == spawnedPlayer.TeamNum
+                    || !TryGetAlivePlayerPawn(playerController, out _))
+                {
+                    continue;
+                }
+
+                recipients.Add(playerController);
+                hasRecipients = true;
+            }
+
+            if (!hasRecipients)
+            {
+                return;
+            }
+
+            try
+            {
+                spawnedPawn.EmitSound(Config.SpawnSound, recipients);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning($"[SPAWN] Failed to play spawn sound '{Config.SpawnSound}': {ex.Message}");
+            }
         }
 
         private SpawnInfo? GetRandomNavSpawnPoint(int slot, int team, CCSPlayerPawn pawn, double minDistance)
