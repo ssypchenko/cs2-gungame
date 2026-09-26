@@ -56,7 +56,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.2.6";
+        public override string ModuleVersion => "v1.2.7";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -2154,6 +2154,12 @@ namespace GunGame
             var attacker = eventInfo.Attacker;
             var victim = eventInfo.Userid;
             var weapon = eventInfo.Weapon;
+
+            // ShootKnifeBlock protects human victims only. Bots may be shot and then knifed.
+            if (victim?.IsBot == true)
+            {
+                return HookResult.Continue;
+            }
 
             if (attacker != null && victim != null && IsPlayer(attacker.Slot) && IsPlayer(victim.Slot))
             {
@@ -5152,11 +5158,7 @@ namespace GunGame
                     randomNavSpawnAreas.Add(area);
                 }
 
-                if (randomNavSpawnAreas.Count > 0)
-                {
-                    Logger.LogInformation($"[SPAWN] Loaded {randomNavSpawnAreas.Count} usable NavMesh areas for RespawnByPlugin 5");
-                }
-                else if (!randomNavSpawnFallbackWarningLogged)
+                if (randomNavSpawnAreas.Count == 0 && !randomNavSpawnFallbackWarningLogged)
                 {
                     Logger.LogWarning("[SPAWN] RespawnByPlugin 5: no usable NavMesh areas found. Falling back to map spawn entities.");
                     randomNavSpawnFallbackWarningLogged = true;
@@ -5206,12 +5208,6 @@ namespace GunGame
                     return;
                 }
 
-                Vector? before = null;
-                if (pawn.AbsOrigin != null)
-                {
-                    before = new Vector(pawn.AbsOrigin.X, pawn.AbsOrigin.Y, pawn.AbsOrigin.Z);
-                }
-
                 try
                 {
                     pawn.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
@@ -5221,11 +5217,6 @@ namespace GunGame
                     Logger.LogError($"[SPAWN] RespawnByPlugin 5: Teleport failed for {playerController.PlayerName} ({slot}): {ex.Message}");
                     FreeSpawnPointWithDelay(spawn.Position);
                     return;
-                }
-
-                if (Config.LogSpawnDistance)
-                {
-                    Logger.LogInformation($"[SPAWN] NAV teleport issued for {playerController.PlayerName} ({slot}): from={before}, target={spawn.Position}");
                 }
 
                 VerifyRandomNavSpawn(slot, spawn, retry: false);
@@ -5259,10 +5250,6 @@ namespace GunGame
 
                 if (distance <= RandomNavSpawnVerifyTolerance)
                 {
-                    if (Config.LogSpawnDistance)
-                    {
-                        Logger.LogInformation($"[SPAWN] NAV teleport verified for {playerController.PlayerName} ({slot}): target={spawn.Position}, actual={actual}, distance={distance:F1}");
-                    }
                     return;
                 }
 
@@ -5331,7 +5318,7 @@ namespace GunGame
                     var hitPoint = floorTrace.HitPoint;
                     var position = new Vector(hitPoint.X, hitPoint.Y, hitPoint.Z + RandomNavSpawnFloorOffset);
 
-                    if (playerManager.IsPlayerNearby(slot, position, minDistance))
+                    if (IsAlivePlayerNearby(slot, position, minDistance))
                     {
                         continue;
                     }
@@ -5353,11 +5340,6 @@ namespace GunGame
                         continue;
                     }
 
-                    if (Config.LogSpawnDistance)
-                    {
-                        Logger.LogInformation($"[SPAWN] Random NavMesh point selected for slot {slot}: area={area.Id}, attempt={attempt + 1}, position={position}");
-                    }
-
                     return new SpawnInfo(
                         position,
                         new QAngle(0, (float)(random.NextDouble() * 360.0), 0));
@@ -5372,6 +5354,37 @@ namespace GunGame
             }
 
             return fallback;
+        }
+
+        private bool IsAlivePlayerNearby(int slot, Vector position, double minDistance)
+        {
+            if (minDistance <= 0)
+            {
+                return false;
+            }
+
+            double minDistanceSquared = minDistance * minDistance;
+            foreach (var playerController in GetValidPlayersWithBots())
+            {
+                if (playerController.Slot == slot || !IsClientInTeam(playerController))
+                {
+                    continue;
+                }
+
+                if (!TryGetAlivePlayerPawn(playerController, out var playerPawn) || playerPawn.AbsOrigin == null)
+                {
+                    continue;
+                }
+
+                double dx = playerPawn.AbsOrigin.X - position.X;
+                double dy = playerPawn.AbsOrigin.Y - position.Y;
+                if ((dx * dx) + (dy * dy) < minDistanceSquared)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool TryReserveRandomSpawn(Vector position, double minDistance)
@@ -5839,7 +5852,6 @@ namespace GunGame
                 return false;
             double minD = 10000.0;
             double dist;
-            string closest = "no";
 
             foreach (var player in playerMap)
             {
@@ -5863,11 +5875,6 @@ namespace GunGame
                         if (dist < minD)
                         {
                             minD = dist;
-                            closest = pc.PlayerName;
-                        }
-                        if (Plugin.Config.LogSpawnDistance)
-                        {
-                            Plugin.Logger.LogInformation($"[SPAWN] {pc.PlayerName} distance from {spawn} - {dist}");
                         }
                     }
                 }
