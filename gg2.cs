@@ -53,7 +53,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.2.4";
+        public override string ModuleVersion => "v1.2.5";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -237,6 +237,17 @@ namespace GunGame
         private DateTime lastRoundStartEventTime = DateTime.MinValue;
         private static readonly object spawnLock = new object(); // Lock for thread safety
         private static readonly HashSet<Vector> usedSpawnPoints = new HashSet<Vector>(); // Stores currently used spawn points
+        private const int RandomNavSpawnMaxAttempts = 96;
+        private const float RandomNavSpawnHullHalfWidth = 16.0f;
+        private const float RandomNavSpawnHullHeight = 72.0f;
+        private const float RandomNavSpawnAreaMargin = 18.0f;
+        private const float RandomNavSpawnFloorProbeUp = 16.0f;
+        private const float RandomNavSpawnFloorProbeDown = 48.0f;
+        private const float RandomNavSpawnFloorOffset = 2.0f;
+        private readonly List<CCSNavArea> randomNavSpawnAreas = new();
+        private readonly HashSet<int> skipRandomNavSpawnOnce = new();
+        private bool randomNavSpawnLoadAttempted;
+        private bool randomNavSpawnFallbackWarningLogged;
         private static readonly HashSet<string> NonKnifeDamageWeapons = new HashSet<string>(StringComparer.Ordinal)
         {
             "hegrenade",
@@ -957,6 +968,10 @@ namespace GunGame
             PlayerLevelsBeforeDisconnect.Clear();
             PlayerHandicapTimes.Clear();
             SkipSpawn.Clear();
+            skipRandomNavSpawnOnce.Clear();
+            randomNavSpawnAreas.Clear();
+            randomNavSpawnLoadAttempted = false;
+            randomNavSpawnFallbackWarningLogged = false;
             MapWeaponList.Clear();
             Array.Clear(g_Shot);
             Array.Clear(LastDeathTime);
@@ -1127,6 +1142,12 @@ namespace GunGame
                 Logger.LogWarning($"No DM spawn points found ({GGVariables.Instance.spawnPoints[4].Count}), change RespawnByPlugin to 0 (no respawn by plugin)");
                 Config.RespawnByPlugin = 0;
             }
+
+            if (Config.RespawnByPlugin == 5)
+            {
+                LoadRandomNavSpawnAreas();
+            }
+
             Logger.LogInformation($"***** Read {GGVariables.Instance.spawnPoints[3].Count} ct spawn, {GGVariables.Instance.spawnPoints[2].Count} t spawn, {GGVariables.Instance.spawnPoints[4].Count} dm spawn");
             SetSpawnRules(Config.RespawnByPlugin);
         }
@@ -1321,10 +1342,6 @@ namespace GunGame
         private HookResult EventPlayerSpawnHandler(EventPlayerSpawn @event, GameEventInfo info)
         {
             //            Process currentProc = Process.GetCurrentProcess();
-            if (!GGVariables.Instance.IsActive)
-            {
-                return HookResult.Continue;
-            }
             if (@event == null || @event.Userid == null)
             {
                 return HookResult.Continue;
@@ -1333,6 +1350,16 @@ namespace GunGame
             if (playerController == null || !IsValidPlayer(playerController) || !IsClientInTeam(playerController))
             {
                 //                Logger.LogError($"PlayerSpawn {@event.Userid.Slot} - bad playerController");
+                return HookResult.Continue;
+            }
+
+            if (Config.RespawnByPlugin == 5 && IsRespawnServiceActive)
+            {
+                ScheduleRandomNavSpawn(playerController.Slot);
+            }
+
+            if (!GGVariables.Instance.IsActive)
+            {
                 return HookResult.Continue;
             }
             var client = playerManager.FindBySlot(playerController.Slot, "EventPlayerSpawnHandler");
@@ -5001,6 +5028,16 @@ namespace GunGame
 
                 if (!spawnpoint)
                 {
+                    if (Config.RespawnByPlugin == 5)
+                    {
+                        skipRandomNavSpawnOnce.Add(playerSlot);
+                    }
+                    PlayerRespawn(currentPlayer, currentController, respawnSequence, null);
+                    return;
+                }
+
+                if (Config.RespawnByPlugin == 5)
+                {
                     PlayerRespawn(currentPlayer, currentController, respawnSequence, null);
                     return;
                 }
@@ -5086,45 +5123,241 @@ namespace GunGame
                 list[n] = value;
             }
         }
+        private void LoadRandomNavSpawnAreas()
+        {
+            randomNavSpawnAreas.Clear();
+            randomNavSpawnLoadAttempted = true;
+
+            try
+            {
+                foreach (var area in CCSNavArea.GetAllNavAreas())
+                {
+                    if (area.Area2D < 4.0f || area.Normal.Z < 0.5f)
+                    {
+                        continue;
+                    }
+
+                    randomNavSpawnAreas.Add(area);
+                }
+
+                if (randomNavSpawnAreas.Count > 0)
+                {
+                    Logger.LogInformation($"[SPAWN] Loaded {randomNavSpawnAreas.Count} usable NavMesh areas for RespawnByPlugin 5");
+                }
+                else if (!randomNavSpawnFallbackWarningLogged)
+                {
+                    Logger.LogWarning("[SPAWN] RespawnByPlugin 5: no usable NavMesh areas found. Falling back to map spawn entities.");
+                    randomNavSpawnFallbackWarningLogged = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!randomNavSpawnFallbackWarningLogged)
+                {
+                    Logger.LogWarning($"[SPAWN] RespawnByPlugin 5: failed to read NavMesh ({ex.Message}). Falling back to map spawn entities.");
+                    randomNavSpawnFallbackWarningLogged = true;
+                }
+            }
+        }
+
+        private void ScheduleRandomNavSpawn(int slot)
+        {
+            Server.NextFrame(() =>
+            {
+                if (Config.RespawnByPlugin != 5 || !IsRespawnServiceActive)
+                {
+                    skipRandomNavSpawnOnce.Remove(slot);
+                    return;
+                }
+
+                if (skipRandomNavSpawnOnce.Remove(slot))
+                {
+                    return;
+                }
+
+                var playerController = Utilities.GetPlayerFromSlot(slot);
+                if (playerController == null || !IsValidPlayer(playerController) || !IsClientInTeam(playerController)
+                    || !TryGetPlayerPawn(playerController, out var pawn)
+                    || pawn.LifeState != (byte)LifeState_t.LIFE_ALIVE)
+                {
+                    return;
+                }
+
+                var spawn = GetRandomNavSpawnPoint(slot, playerController.TeamNum, pawn, Config.SpawnDistance);
+                if (spawn == null)
+                {
+                    Logger.LogWarning($"[SPAWN] RespawnByPlugin 5: no safe random spawn found for {playerController.PlayerName} ({slot}); keeping the engine spawn.");
+                    return;
+                }
+
+                pawn.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                FreeSpawnPointWithDelay(spawn.Position);
+            });
+        }
+
+        private SpawnInfo? GetRandomNavSpawnPoint(int slot, int team, CCSPlayerPawn pawn, double minDistance)
+        {
+            if (!randomNavSpawnLoadAttempted)
+            {
+                LoadRandomNavSpawnAreas();
+            }
+
+            if (randomNavSpawnAreas.Count > 0)
+            {
+                for (int attempt = 0; attempt < RandomNavSpawnMaxAttempts; attempt++)
+                {
+                    var area = randomNavSpawnAreas[random.Next(randomNavSpawnAreas.Count)];
+                    var min = area.Min;
+                    var max = area.Max;
+
+                    float marginX = Math.Min(RandomNavSpawnAreaMargin, area.Width * 0.45f);
+                    float marginY = Math.Min(RandomNavSpawnAreaMargin, area.Height * 0.45f);
+                    float minX = min.X + marginX;
+                    float maxX = max.X - marginX;
+                    float minY = min.Y + marginY;
+                    float maxY = max.Y - marginY;
+
+                    float x = minX >= maxX ? area.Center.X : minX + (float)random.NextDouble() * (maxX - minX);
+                    float y = minY >= maxY ? area.Center.Y : minY + (float)random.NextDouble() * (maxY - minY);
+                    var navPoint = area.GetClosestPoint(new Vector(x, y, area.Center.Z));
+
+                    var floorStart = new Vector(navPoint.X, navPoint.Y, navPoint.Z + RandomNavSpawnFloorProbeUp);
+                    var floorEnd = new Vector(navPoint.X, navPoint.Y, navPoint.Z - RandomNavSpawnFloorProbeDown);
+                    var floorTrace = Trace.TraceEndShape(
+                        floorStart,
+                        floorEnd,
+                        ignoreEntity: pawn,
+                        options: new TraceOptions
+                        {
+                            InteractsWith = Masks.PlayerSolidBrushOnly,
+                            InteractsExclude = Contents.Pickup
+                        });
+
+                    if (!floorTrace.DidHit() || floorTrace.Normal.Z < 0.5f)
+                    {
+                        continue;
+                    }
+
+                    var hitPoint = floorTrace.HitPoint;
+                    var position = new Vector(hitPoint.X, hitPoint.Y, hitPoint.Z + RandomNavSpawnFloorOffset);
+
+                    if (playerManager.IsPlayerNearby(slot, position, minDistance))
+                    {
+                        continue;
+                    }
+
+                    var hullResult = Trace.TraceHullShape(
+                        position,
+                        new Vector(position.X, position.Y, position.Z + 0.1f),
+                        new Vector(-RandomNavSpawnHullHalfWidth, -RandomNavSpawnHullHalfWidth, 0),
+                        new Vector(RandomNavSpawnHullHalfWidth, RandomNavSpawnHullHalfWidth, RandomNavSpawnHullHeight),
+                        ignoreEntity: pawn,
+                        options: new TraceOptions
+                        {
+                            InteractsWith = Masks.PlayerSolidBrushOnly,
+                            InteractsExclude = Contents.Pickup
+                        });
+
+                    if (hullResult.DidHit() || !TryReserveRandomSpawn(position, minDistance))
+                    {
+                        continue;
+                    }
+
+                    return new SpawnInfo(
+                        position,
+                        new QAngle(0, (float)(random.NextDouble() * 360.0), 0));
+                }
+            }
+
+            var fallback = GetFallbackSpawnPoint(slot, team, minDistance);
+            if (fallback != null && !randomNavSpawnFallbackWarningLogged)
+            {
+                Logger.LogWarning("[SPAWN] RespawnByPlugin 5: using map spawn entities because no safe NavMesh position was available.");
+                randomNavSpawnFallbackWarningLogged = true;
+            }
+
+            return fallback;
+        }
+
+        private bool TryReserveRandomSpawn(Vector position, double minDistance)
+        {
+            double minDistanceSquared = minDistance * minDistance;
+
+            lock (spawnLock)
+            {
+                foreach (var reserved in usedSpawnPoints)
+                {
+                    double dx = reserved.X - position.X;
+                    double dy = reserved.Y - position.Y;
+                    if ((dx * dx) + (dy * dy) < minDistanceSquared)
+                    {
+                        return false;
+                    }
+                }
+
+                usedSpawnPoints.Add(position);
+                return true;
+            }
+        }
+
+        private SpawnInfo? GetFallbackSpawnPoint(int slot, int team, double minDistance)
+        {
+            if (GGVariables.Instance.spawnPoints.TryGetValue(4, out var dmSpawns) && dmSpawns.Count > 0)
+            {
+                var dmSpawn = GetSuitableSpawnPointForType(slot, 4, minDistance, logFailure: false);
+                if (dmSpawn != null)
+                {
+                    return dmSpawn;
+                }
+            }
+
+            return GetSuitableSpawnPointForType(slot, team, minDistance, logFailure: false);
+        }
+
         private SpawnInfo GetSuitableSpawnPoint(int slot, int team, double minDistance = 39.0)
         {
             int spawnType = Config.RespawnByPlugin == 4 ? 4 : team;
+            return GetSuitableSpawnPointForType(slot, spawnType, minDistance, logFailure: true)!;
+        }
 
+        private SpawnInfo? GetSuitableSpawnPointForType(int slot, int spawnType, double minDistance, bool logFailure)
+        {
             if (!GGVariables.Instance.spawnPoints.ContainsKey(spawnType))
             {
-                Logger.LogError($"SpawnPoints not ContainsKey {spawnType}");
-                return null!;
+                if (logFailure)
+                {
+                    Logger.LogError($"SpawnPoints not ContainsKey {spawnType}");
+                }
+                return null;
             }
 
-            // Shuffle the spawn points list to randomize the selection process
             var shuffledSpawns = new List<SpawnInfo>(GGVariables.Instance.spawnPoints[spawnType]);
-
-            // Shuffle the copy
             Shuffle(shuffledSpawns);
+
             lock (spawnLock)
             {
                 foreach (var spawn in shuffledSpawns)
                 {
-                    // Check if the spawn point is already in use
                     if (usedSpawnPoints.Contains(spawn.Position))
+                    {
                         continue;
+                    }
 
-                    // Check if a player is nearby and if this spawn isn't the last used
                     if (!playerManager.IsPlayerNearby(slot, spawn.Position, minDistance) && spawn != LastSpawns[spawnType])
                     {
-                        // Mark this spawn point as used
                         usedSpawnPoints.Add(spawn.Position);
-
-                        // Store the last spawn point for the spawn type
                         LastSpawns[spawnType] = spawn;
-
                         return spawn;
                     }
                 }
             }
-            Logger.LogInformation($"No suitable spawn points for player {slot}");
-            // No suitable spawn point found
-            return null!;
+
+            if (logFailure)
+            {
+                Logger.LogInformation($"No suitable spawn points for player {slot}");
+            }
+
+            return null;
         }
         public void FreeSpawnPointWithDelay(Vector position)
         {
@@ -5153,51 +5386,54 @@ namespace GunGame
                 Logger.LogWarning("cvar respawn_on_death_t can't be found");
             }
 
-
-            if (spawnType == 1)
+            switch (spawnType)
             {
-                Config.RespawnByPlugin = 1;
-                respawn_on_death_ct?.SetValue(true);
-                respawn_on_death_t?.SetValue(false);
-                Console.WriteLine("Plugin Respawn T on");
-                Logger.LogInformation("Plugin Respawn T on");
-            }
-            else if (spawnType == 2)
-            {
-                Config.RespawnByPlugin = 2;
-                respawn_on_death_ct?.SetValue(false);
-                respawn_on_death_t?.SetValue(true);
-                Console.WriteLine("Plugin Respawn CT on");
-                Logger.LogInformation("Plugin Respawn CT on");
-            }
-            if (spawnType == 3)
-            {
-                Config.RespawnByPlugin = 3;
-                respawn_on_death_ct?.SetValue(false);
-                respawn_on_death_t?.SetValue(false);
-                Console.WriteLine("Plugin Respawn T and CT on");
-                Logger.LogInformation("Plugin Respawn T and CT on");
-            }
-            else if (spawnType == 4)
-            {
-                Config.RespawnByPlugin = 4;
-                respawn_on_death_ct?.SetValue(false);
-                respawn_on_death_t?.SetValue(false);
-                Console.WriteLine("Plugin Respawn DM on");
-                Logger.LogInformation("Plugin Respawn DM on");
-            }
-            else if (spawnType == 0)
-            {
-                Config.RespawnByPlugin = 0;
-                respawn_on_death_ct?.SetValue(true);
-                respawn_on_death_t?.SetValue(true);
-                Console.WriteLine("Plugin Respawn off");
-                Logger.LogInformation("Plugin Respawn off");
-            }
-            else
-            {
-                Console.WriteLine($"Error set Respawn Rules with code {spawnType}");
-                Logger.LogError($"Error set Respawn Rules with code {spawnType}");
+                case 0:
+                    Config.RespawnByPlugin = 0;
+                    respawn_on_death_ct?.SetValue(true);
+                    respawn_on_death_t?.SetValue(true);
+                    Console.WriteLine("Plugin Respawn off");
+                    Logger.LogInformation("Plugin Respawn off");
+                    break;
+                case 1:
+                    Config.RespawnByPlugin = 1;
+                    respawn_on_death_ct?.SetValue(true);
+                    respawn_on_death_t?.SetValue(false);
+                    Console.WriteLine("Plugin Respawn T on");
+                    Logger.LogInformation("Plugin Respawn T on");
+                    break;
+                case 2:
+                    Config.RespawnByPlugin = 2;
+                    respawn_on_death_ct?.SetValue(false);
+                    respawn_on_death_t?.SetValue(true);
+                    Console.WriteLine("Plugin Respawn CT on");
+                    Logger.LogInformation("Plugin Respawn CT on");
+                    break;
+                case 3:
+                    Config.RespawnByPlugin = 3;
+                    respawn_on_death_ct?.SetValue(false);
+                    respawn_on_death_t?.SetValue(false);
+                    Console.WriteLine("Plugin Respawn T and CT on");
+                    Logger.LogInformation("Plugin Respawn T and CT on");
+                    break;
+                case 4:
+                    Config.RespawnByPlugin = 4;
+                    respawn_on_death_ct?.SetValue(false);
+                    respawn_on_death_t?.SetValue(false);
+                    Console.WriteLine("Plugin Respawn DM on");
+                    Logger.LogInformation("Plugin Respawn DM on");
+                    break;
+                case 5:
+                    Config.RespawnByPlugin = 5;
+                    respawn_on_death_ct?.SetValue(false);
+                    respawn_on_death_t?.SetValue(false);
+                    Console.WriteLine("Plugin Respawn Random NavMesh on");
+                    Logger.LogInformation("Plugin Respawn Random NavMesh on");
+                    break;
+                default:
+                    Console.WriteLine($"Error set Respawn Rules with code {spawnType}");
+                    Logger.LogError($"Error set Respawn Rules with code {spawnType}");
+                    break;
             }
         }
         public void DisplayHint(CCSPlayerController? playerController, string text)
