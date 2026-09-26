@@ -117,9 +117,9 @@ public class GGConfig
     /**
     * Prohibit to shoot and then knife
     * 
-    * true - Player will loose a level for shoot and knife against human players
+    * true - Human player will loose a level for shoot and knife against any player, including bots
     * false - ignore
-    * Bots are excluded from this restriction.
+    * Bot attackers are excluded from this restriction.
     */
     [JsonPropertyName("ShootKnifeBlock")]
     public bool ShootKnifeBlock { get; set; } = true;
