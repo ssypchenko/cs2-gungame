@@ -123,6 +123,8 @@
   "_comment.MultiLevelAmount": "Number of levels needed to trigger Multi Level Bonus",
   "MultiLevelSound": "sounds/training/highscore.wav",
   "_comment.MultiLevelSound": "Sound on Multilevel bonus",
+  "SpawnSound": "Player.Respawn",
+  "_comment.SpawnSound": "3D SoundEvent played from the player position after a verified random NavMesh spawn. Empty string disables the spawn sound.",
   "CommitSuicide": 1,
   "_comment.CommitSuicide": "Level down players if they use the 'kill' command. 0 - Disable, 1..N - Levels to lose",
   "TkLooseLevel": 2,
