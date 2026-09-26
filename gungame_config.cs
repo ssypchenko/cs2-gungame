@@ -14,7 +14,7 @@ public class GGConfig
 
     [JsonPropertyName("AllowKickNotConfirmedSteamID")]
     public bool AllowKickNotConfirmedSteamID { get; set; } = true;
-    /* Random Respawn type 0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns */
+    /* Random Respawn type 0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns, 5 - Random NavMesh spawn across the whole map */
     [JsonPropertyName("RespawnByPlugin")]
     public int RespawnByPlugin { get; set; } = 0;
     /* Remove objectives from map. 0 = Disabled, 1 = BOMB, 2 = HOSTAGE, 3 = BOTH*/
@@ -117,8 +117,9 @@ public class GGConfig
     /**
     * Prohibit to shoot and then knife
     * 
-    * true - Player will loose a level for shoot and knife
+    * true - Human player will loose a level for shoot and knife against any player, including bots
     * false - ignore
+    * Bot attackers are excluded from this restriction.
     */
     [JsonPropertyName("ShootKnifeBlock")]
     public bool ShootKnifeBlock { get; set; } = true;
@@ -218,6 +219,11 @@ public class GGConfig
     /*Sound on Multilevel bonus */
     [JsonPropertyName("MultiLevelSound")]
     public string MultiLevelSound { get; set; } = "sounds/training/highscore.wav";
+
+    /* 3D SoundEvent played from the player's position after a verified random NavMesh spawn.
+       Empty string disables the spawn sound. */
+    [JsonPropertyName("SpawnSound")]
+    public string SpawnSound { get; set; } = "Player.Respawn";
     
     /**
     * Level down players if they use the "kill" command
@@ -758,8 +764,5 @@ public class GGConfig
     
     [JsonPropertyName("SpawnDistance")]
     public double SpawnDistance { get; set; } = 100.0;
-
-    [JsonPropertyName("LogSpawnDistance")]
-    public bool LogSpawnDistance { get; set; } = false;
 
 }
