@@ -56,7 +56,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.2.5";
+        public override string ModuleVersion => "v1.2.6";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -1619,7 +1619,11 @@ namespace GunGame
                     }
                 }
             }
-            if ((!GGVariables.Instance.RoundStarted && !Config.AllowLevelUpAfterRoundEnd) || GGVariables.Instance.GameWinner != null)
+            // During warmup RoundStarted stays false, but plugin-managed random respawn must remain active.
+            // Only bypass custom spawn selection when the round is genuinely inactive outside warmup,
+            // or after a winner has already been declared.
+            if ((!GGVariables.Instance.RoundStarted && !Config.AllowLevelUpAfterRoundEnd && !warmupInitialized)
+                || GGVariables.Instance.GameWinner != null)
             {
                 Respawn(VictimController, false);
                 return HookResult.Continue;
