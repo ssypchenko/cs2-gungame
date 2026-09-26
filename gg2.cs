@@ -248,6 +248,7 @@ namespace GunGame
         private readonly HashSet<int> skipRandomNavSpawnOnce = new();
         private bool randomNavSpawnLoadAttempted;
         private bool randomNavSpawnFallbackWarningLogged;
+        private bool randomNavSpawnFailureWarningLogged;
         private static readonly HashSet<string> NonKnifeDamageWeapons = new HashSet<string>(StringComparer.Ordinal)
         {
             "hegrenade",
@@ -972,6 +973,7 @@ namespace GunGame
             randomNavSpawnAreas.Clear();
             randomNavSpawnLoadAttempted = false;
             randomNavSpawnFallbackWarningLogged = false;
+            randomNavSpawnFailureWarningLogged = false;
             MapWeaponList.Clear();
             Array.Clear(g_Shot);
             Array.Clear(LastDeathTime);
@@ -5186,7 +5188,11 @@ namespace GunGame
                 var spawn = GetRandomNavSpawnPoint(slot, playerController.TeamNum, pawn, Config.SpawnDistance);
                 if (spawn == null)
                 {
-                    Logger.LogWarning($"[SPAWN] RespawnByPlugin 5: no safe random spawn found for {playerController.PlayerName} ({slot}); keeping the engine spawn.");
+                    if (!randomNavSpawnFailureWarningLogged)
+                    {
+                        Logger.LogWarning($"[SPAWN] RespawnByPlugin 5: no safe random spawn found for {playerController.PlayerName} ({slot}); keeping the engine spawn. Further failures on this map will not be logged.");
+                        randomNavSpawnFailureWarningLogged = true;
+                    }
                     return;
                 }
 
