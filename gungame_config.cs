@@ -219,6 +219,11 @@ public class GGConfig
     /*Sound on Multilevel bonus */
     [JsonPropertyName("MultiLevelSound")]
     public string MultiLevelSound { get; set; } = "sounds/training/highscore.wav";
+
+    /* 3D SoundEvent played from the player's position after a verified random NavMesh spawn.
+       Empty string disables the spawn sound. */
+    [JsonPropertyName("SpawnSound")]
+    public string SpawnSound { get; set; } = "Player.Respawn";
     
     /**
     * Level down players if they use the "kill" command
