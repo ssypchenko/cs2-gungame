@@ -29,6 +29,8 @@ using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
+using CSTrace = CounterStrikeSharp.API.Modules.Utils.Trace;
+using CSTraceOptions = CounterStrikeSharp.API.Modules.Utils.TraceOptions;
 using Newtonsoft.Json;
 using GunGame.API;
 using GunGame.Models;
@@ -5230,11 +5232,11 @@ namespace GunGame
 
                     var floorStart = new Vector(navPoint.X, navPoint.Y, navPoint.Z + RandomNavSpawnFloorProbeUp);
                     var floorEnd = new Vector(navPoint.X, navPoint.Y, navPoint.Z - RandomNavSpawnFloorProbeDown);
-                    var floorTrace = Trace.TraceEndShape(
+                    var floorTrace = CSTrace.TraceEndShape(
                         floorStart,
                         floorEnd,
                         ignoreEntity: pawn,
-                        options: new TraceOptions
+                        options: new CSTraceOptions
                         {
                             InteractsWith = Masks.PlayerSolidBrushOnly,
                             InteractsExclude = Contents.Pickup
@@ -5253,13 +5255,13 @@ namespace GunGame
                         continue;
                     }
 
-                    var hullResult = Trace.TraceHullShape(
+                    var hullResult = CSTrace.TraceHullShape(
                         position,
                         new Vector(position.X, position.Y, position.Z + 0.1f),
                         new Vector(-RandomNavSpawnHullHalfWidth, -RandomNavSpawnHullHalfWidth, 0),
                         new Vector(RandomNavSpawnHullHalfWidth, RandomNavSpawnHullHalfWidth, RandomNavSpawnHullHeight),
                         ignoreEntity: pawn,
-                        options: new TraceOptions
+                        options: new CSTraceOptions
                         {
                             InteractsWith = Masks.PlayerSolidBrushOnly,
                             InteractsExclude = Contents.Pickup
