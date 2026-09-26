@@ -5269,6 +5269,11 @@ namespace GunGame
                         continue;
                     }
 
+                    if (Config.LogSpawnDistance)
+                    {
+                        Logger.LogInformation($"[SPAWN] Random NavMesh point selected for slot {slot}: area={area.Id}, attempt={attempt + 1}, position={position}");
+                    }
+
                     return new SpawnInfo(
                         position,
                         new QAngle(0, (float)(random.NextDouble() * 360.0), 0));
