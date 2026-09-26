@@ -302,7 +302,10 @@ namespace GunGame
         }
         public override void Load(bool hotReload)
         {
-            PublishMotdUrl();
+            if (hotReload)
+            {
+                PublishMotdUrl();
+            }
             CoreAPI = new CoreAPI(this);
             if (CoreAPI != null)
             {
