@@ -42,6 +42,7 @@ using Serilog;
 
 namespace GunGame
 {
+    [MinimumApiVersion(372)]
     public class GunGame : BasePlugin
     {
         public GunGame(IStringLocalizer<GunGame> localizer)
