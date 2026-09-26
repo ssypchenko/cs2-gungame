@@ -8,6 +8,12 @@ public class GGConfig
 {
     [JsonPropertyName("IsPluginEnabled")]
     public bool IsPluginEnabled { get; set; } = true;
+
+    [JsonPropertyName("RespawnWhenGunGameModeDisabled")]
+    public bool RespawnWhenGunGameModeDisabled { get; set; } = true;
+
+    [JsonPropertyName("AllowKickNotConfirmedSteamID")]
+    public bool AllowKickNotConfirmedSteamID { get; set; } = true;
     /* Random Respawn type 0 - disabled, 1 - T only, 2 - CT only, 3 - Both teams, 4 - Deathmatch spawns */
     [JsonPropertyName("RespawnByPlugin")]
     public int RespawnByPlugin { get; set; } = 0;
@@ -371,6 +377,9 @@ public class GGConfig
     */
     [JsonPropertyName("HandicapUpdate")]
     public float HandicapUpdate { get; set; } = 150;
+
+    [JsonPropertyName("HandicapDebugLog")]
+    public bool HandicapDebugLog { get; set; } = false;
 
     /* Substract handicap level by this value */
     [JsonPropertyName("HandicapLevelSubstract")]

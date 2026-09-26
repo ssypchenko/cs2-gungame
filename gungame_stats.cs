@@ -184,6 +184,7 @@ namespace GunGame.Stats
                 });
             }
             GGVariables.Instance.StatsEnabled = true;
+            Server.NextFrame(Plugin.OnStatsDatabaseReady);
         }
         public async Task<bool> CheckMySQLConnectionAsync()
         {  
@@ -366,8 +367,15 @@ namespace GunGame.Stats
         // Add check in main plugin if the function work
         public async Task GetPlayerWins(GGPlayer player)
         {
+            ulong steamId = player.SavedSteamID;
+            if (steamId == 0)
+            {
+                return;
+            }
+
             if (!_isDatabaseReady)
             {
+                player.ResetStatsLoadRequest(steamId);
                 Console.WriteLine("************** Database is not ready yet. Can't request Player Wins");
                 Plugin.Logger.LogError("GetPlayerWins: Database is not ready yet. Can't request Player Wins");
                 return;
@@ -452,7 +460,7 @@ namespace GunGame.Stats
                         await _sqliteConn.OpenAsync();
                         await using (var command = new SqliteCommand(query, _sqliteConn))
                         {
-                            command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                            command.Parameters.AddWithValue("@authid", steamId);
                             await using (var reader = await command.ExecuteReaderAsync())
                             {
                                 if (await reader.ReadAsync())
@@ -489,7 +497,7 @@ namespace GunGame.Stats
 
                     using (var command = new MySqlCommand(query, _mysqlConn))
                     {
-                        command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                        command.Parameters.AddWithValue("@authid", steamId);
                         using (var reader = await command.ExecuteReaderAsync())
                         {
                             if (await reader.ReadAsync())
@@ -538,7 +546,7 @@ namespace GunGame.Stats
                         await _sqliteConn.OpenAsync();
                         using (var command = new SqliteCommand(sql, _sqliteConn))
                         {
-                            command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                            command.Parameters.AddWithValue("@authid", steamId);
                             command.Parameters.AddWithValue("@name", player.PlayerName);
                             command.Parameters.AddWithValue("@countrycode", ipcountrycode);
 
@@ -585,7 +593,7 @@ namespace GunGame.Stats
                         await _mysqlConn.OpenAsync();
                         using (var command = new MySqlCommand(sql, _mysqlConn))
                         {
-                            command.Parameters.AddWithValue("@authid", player.SavedSteamID);
+                            command.Parameters.AddWithValue("@authid", steamId);
                             command.Parameters.AddWithValue("@name", player.PlayerName);
                             command.Parameters.AddWithValue("@countrycode", ipcountrycode);
                             int rowsAffected = await command.ExecuteNonQueryAsync();
@@ -614,13 +622,26 @@ namespace GunGame.Stats
             
             Server.NextFrame(() =>
             {
-                if (player != null)
+                if (Plugin.playerManager.TryGetBySteamId(steamId, out var currentPlayer)
+                    && currentPlayer != null
+                    && currentPlayer.SavedSteamID == steamId)
                 {
-                    player.PlayerWins = wins;
-                    player.Music = sound == 1;
-                    player.Culture = tempCulture;
-                    player.SetLanguage();
+                    currentPlayer.PlayerWins = wins;
+                    currentPlayer.Music = sound == 1;
+                    currentPlayer.Culture = tempCulture;
+                    currentPlayer.SetLanguage();
+                    if (Plugin.Config.HandicapDebugLog)
+                    {
+                        Plugin.Logger.LogInformation(
+                            $"[HANDICAP DEBUG] Player statistics loaded: player={currentPlayer.PlayerName}, " +
+                            $"slot={currentPlayer.Slot}, wins={wins}.");
+                    }
 //                    Plugin.Logger.LogInformation($"[GunGame_Stats] {player.PlayerName} wins {player.PlayerWins}, sound {sound}");
+                }
+                else if (Plugin.Config.HandicapDebugLog)
+                {
+                    Plugin.Logger.LogInformation(
+                        $"[HANDICAP DEBUG] Player statistics ignored: no current session for SteamID {steamId}.");
                 }
             });
         }
@@ -1166,11 +1187,11 @@ namespace GunGame.Stats
     }
     public class DatabaseOperationQueue
     {
-        private ConcurrentQueue<Func<Task>> _operationsQueue = new ConcurrentQueue<Func<Task>>();
-        private SemaphoreSlim _signal = new SemaphoreSlim(0);
-        private Task _worker;
-        private bool _running = true;
-        private GunGame Plugin;
+        private readonly ConcurrentQueue<Func<Task>> _operationsQueue = new();
+        private readonly SemaphoreSlim _signal = new(0);
+        private readonly Task _worker;
+        private int _running = 1;
+        private readonly GunGame Plugin;
         public DatabaseOperationQueue(GunGame plugin)
         {
             Plugin = plugin;
@@ -1180,15 +1201,28 @@ namespace GunGame.Stats
 
         public void EnqueueOperation(Func<Task> operation)
         {
+            if (Volatile.Read(ref _running) == 0)
+            {
+                return;
+            }
+
             _operationsQueue.Enqueue(operation);
-            _signal.Release();
+            if (Volatile.Read(ref _running) != 0)
+            {
+                _signal.Release();
+            }
         }
 
         private async Task ProcessQueueAsync()
         {
-            while (_running)
+            while (Volatile.Read(ref _running) != 0)
             {
                 await _signal.WaitAsync();
+
+                if (Volatile.Read(ref _running) == 0)
+                {
+                    break;
+                }
 
                 if (_operationsQueue.TryDequeue(out Func<Task>? operation) && operation != null)
                 {
@@ -1207,8 +1241,10 @@ namespace GunGame.Stats
         }
         public void Stop()
         {
-            _running = false;
-            _signal.Release(); // Ensure the worker can exit if it's waiting
+            if (Interlocked.Exchange(ref _running, 0) == 1)
+            {
+                _signal.Release(); // Ensure the worker can exit if it is waiting.
+            }
         }
     }
 }
