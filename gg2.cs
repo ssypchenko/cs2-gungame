@@ -45,7 +45,7 @@ using Serilog;
 namespace GunGame
 {
     [MinimumApiVersion(372)]
-    public class GunGame : BasePlugin
+    public partial class GunGame : BasePlugin
     {
         public GunGame(IStringLocalizer<GunGame> localizer)
         {
@@ -56,7 +56,7 @@ namespace GunGame
         public readonly IStringLocalizer<GunGame> _localizer;
         public PlayerLanguageManager playerLanguageManager = new();
         public override string ModuleName => "CS2_GunGame";
-        public override string ModuleVersion => "v1.2.9";
+        public override string ModuleVersion => "v1.2.10";
         public override string ModuleAuthor => "Sergey";
         public override string ModuleDescription => "GunGame mode for CS2";
         public CoreAPI CoreAPI { get; set; } = null!;
@@ -302,6 +302,10 @@ namespace GunGame
         }
         public override void Load(bool hotReload)
         {
+            if (hotReload)
+            {
+                PublishMotdUrl();
+            }
             CoreAPI = new CoreAPI(this);
             if (CoreAPI != null)
             {
@@ -1010,6 +1014,7 @@ namespace GunGame
             StopGlobalTimers();
             playerManager.Clear();
             ClearMapState();
+            PublishMotdUrl();
             if (emergencyTimer != null)
             {
                 var timerToKill = emergencyTimer;

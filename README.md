@@ -47,6 +47,7 @@
     <li>Copy DLLs to <code>csgo/addons/counterstrikesharp/plugins/GG2</code>.</li>
     <li>Place config files in <code>csgo/cfg/gungame</code>.</li>
     <li>Place GeoLite2-Country.mmdb if you have it to <code>csgo/cfg</code></li>
+    <li>Optional: put a single <code>http://</code> or <code>https://</code> URL in <code>csgo/motd.txt</code> to publish the Server Website link in the CS2 scoreboard.</li>
 </ol>
 <p><em>Config Files:</em></p>
 <ul>
