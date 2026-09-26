@@ -247,6 +247,9 @@ namespace GunGame
         private const float RandomNavSpawnFloorProbeUp = 16.0f;
         private const float RandomNavSpawnFloorProbeDown = 48.0f;
         private const float RandomNavSpawnFloorOffset = 2.0f;
+        private const float RandomNavSpawnApplyDelay = 0.10f;
+        private const float RandomNavSpawnVerifyDelay = 0.10f;
+        private const float RandomNavSpawnVerifyTolerance = 96.0f;
         private readonly List<CCSNavArea> randomNavSpawnAreas = new();
         private readonly HashSet<int> skipRandomNavSpawnOnce = new();
         private bool randomNavSpawnLoadAttempted;
@@ -5167,7 +5170,7 @@ namespace GunGame
 
         private void ScheduleRandomNavSpawn(int slot)
         {
-            Server.NextFrame(() =>
+            AddTimer(RandomNavSpawnApplyDelay, () =>
             {
                 if (Config.RespawnByPlugin != 5 || !IsRespawnServiceActive)
                 {
@@ -5199,9 +5202,83 @@ namespace GunGame
                     return;
                 }
 
-                pawn.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                Vector? before = null;
+                if (pawn.AbsOrigin != null)
+                {
+                    before = new Vector(pawn.AbsOrigin.X, pawn.AbsOrigin.Y, pawn.AbsOrigin.Z);
+                }
+
+                try
+                {
+                    pawn.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError($"[SPAWN] RespawnByPlugin 5: Teleport failed for {playerController.PlayerName} ({slot}): {ex.Message}");
+                    FreeSpawnPointWithDelay(spawn.Position);
+                    return;
+                }
+
+                if (Config.LogSpawnDistance)
+                {
+                    Logger.LogInformation($"[SPAWN] NAV teleport issued for {playerController.PlayerName} ({slot}): from={before}, target={spawn.Position}");
+                }
+
+                VerifyRandomNavSpawn(slot, spawn, retry: false);
                 FreeSpawnPointWithDelay(spawn.Position);
-            });
+            }, TimerFlags.STOP_ON_MAPCHANGE);
+        }
+
+        private void VerifyRandomNavSpawn(int slot, SpawnInfo spawn, bool retry)
+        {
+            AddTimer(RandomNavSpawnVerifyDelay, () =>
+            {
+                if (Config.RespawnByPlugin != 5 || !IsRespawnServiceActive)
+                {
+                    return;
+                }
+
+                var playerController = Utilities.GetPlayerFromSlot(slot);
+                if (playerController == null || !IsValidPlayer(playerController) || !IsClientInTeam(playerController)
+                    || !TryGetPlayerPawn(playerController, out var pawn)
+                    || pawn.LifeState != (byte)LifeState_t.LIFE_ALIVE
+                    || pawn.AbsOrigin == null)
+                {
+                    return;
+                }
+
+                var actual = pawn.AbsOrigin;
+                double dx = actual.X - spawn.Position.X;
+                double dy = actual.Y - spawn.Position.Y;
+                double dz = actual.Z - spawn.Position.Z;
+                double distance = Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+                if (distance <= RandomNavSpawnVerifyTolerance)
+                {
+                    if (Config.LogSpawnDistance)
+                    {
+                        Logger.LogInformation($"[SPAWN] NAV teleport verified for {playerController.PlayerName} ({slot}): target={spawn.Position}, actual={actual}, distance={distance:F1}");
+                    }
+                    return;
+                }
+
+                if (!retry)
+                {
+                    Logger.LogWarning($"[SPAWN] NAV teleport was overwritten for {playerController.PlayerName} ({slot}): target={spawn.Position}, actual={actual}, distance={distance:F1}. Reapplying once.");
+                    try
+                    {
+                        pawn.Teleport(spawn.Position, spawn.Rotation, new Vector(0, 0, 0));
+                        VerifyRandomNavSpawn(slot, spawn, retry: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError($"[SPAWN] RespawnByPlugin 5: retry Teleport failed for {playerController.PlayerName} ({slot}): {ex.Message}");
+                    }
+                    return;
+                }
+
+                Logger.LogWarning($"[SPAWN] NAV teleport verification failed after retry for {playerController.PlayerName} ({slot}): target={spawn.Position}, actual={actual}, distance={distance:F1}");
+            }, TimerFlags.STOP_ON_MAPCHANGE);
         }
 
         private SpawnInfo? GetRandomNavSpawnPoint(int slot, int team, CCSPlayerPawn pawn, double minDistance)
